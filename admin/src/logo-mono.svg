@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="鲸翼">
+  <title>鲸翼</title>
+  <g fill="currentColor">
+    <path d="M32 46C32 38 37 31 45 26C50 23 55 19 58 13C59.5 21 57 27 52 31L54.5 32.5C50 35.5 46 37 42 37.6L44 39.4C40 40 36.5 41.5 34 44.5L33.5 46Z"/>
+    <path d="M32 46C32 38 37 31 45 26C50 23 55 19 58 13C59.5 21 57 27 52 31L54.5 32.5C50 35.5 46 37 42 37.6L44 39.4C40 40 36.5 41.5 34 44.5L33.5 46Z" transform="matrix(-1 0 0 1 64 0)"/>
+    <path d="M30 44H34L34.8 52.5H29.2Z"/>
+  </g>
+  <path d="M4 55.5C10 52 16 52 22 55.5C28 59 36 59 42 55.5C48 52 54 52 60 55.5" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>
+</svg>
