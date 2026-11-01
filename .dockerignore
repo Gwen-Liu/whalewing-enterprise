@@ -1,0 +1,8 @@
+node_modules
+**/node_modules
+.artifacts
+.git
+server/admin-dist
+plugin/index.js
+plugin/client.js
+*.tgz

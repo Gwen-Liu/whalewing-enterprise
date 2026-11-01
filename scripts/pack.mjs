@@ -5,7 +5,7 @@
 //   node scripts/pack.mjs            两个都打
 //   node scripts/pack.mjs --stage    只准备服务端暂存目录（Docker 构建用）
 import { execFileSync, spawnSync } from 'node:child_process';
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,7 +20,7 @@ const outDir = path.join(root, '.artifacts', 'release', version);
 const stage = path.join(root, '.artifacts', 'pack', 'server');
 
 function run(command, args, cwd) {
-  const result = spawnSync(command, args, { cwd, stdio: 'inherit', shell: process.platform === 'win32' });
+  const result = spawnSync(command, args, { cwd, stdio: 'inherit' });
   if (result.status !== 0) throw new Error(`${command} ${args.join(' ')} 失败`);
 }
 
@@ -55,8 +55,17 @@ function stageServer() {
   writeFileSync(path.join(stage, 'package.json'), JSON.stringify(manifest, null, 2) + '\n');
 }
 
+// 直接用当前 Node 跑 npm，不经过命令行外壳（Windows 上 npm.cmd 要外壳，参数不转义）。
+function npmCli() {
+  const candidates = [process.env.npm_execpath, path.join(path.dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
+    path.join(path.dirname(process.execPath), '../lib/node_modules/npm/bin/npm-cli.js')].filter(Boolean);
+  const found = candidates.find(file => file.endsWith('npm-cli.js') && existsSync(file));
+  if (!found) throw new Error('找不到 npm，请确认装的是带 npm 的 Node.js');
+  return found;
+}
+
 function pack(cwd) {
-  const output = execFileSync('npm', ['pack', '--json', '--pack-destination', outDir], { cwd, encoding: 'utf8', shell: process.platform === 'win32' });
+  const output = execFileSync(process.execPath, [npmCli(), 'pack', '--json', '--pack-destination', outDir], { cwd, encoding: 'utf8' });
   const [info] = JSON.parse(output.slice(output.indexOf('[')));
   return { file: path.join(outDir, info.filename), size: info.size, files: info.entryCount, shasum: info.shasum, integrity: info.integrity };
 }
