@@ -4,3 +4,6 @@ server/admin-dist/
 admin/dist/
 *.tgz
 *.log
+plugin/index.js
+plugin/client.js
+plugin/cordis.patch.yml
