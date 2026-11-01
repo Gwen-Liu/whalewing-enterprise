@@ -1,0 +1,146 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { existsSync } from 'node:fs';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+import { cookieOf, member, OWNER, server, SETUP_CODE } from './helpers.mjs';
+import { createApp } from '../src/app.js';
+
+test('初始化：没初始化时只能用初始化码建第一个管理员，且只能做一次', async t => {
+  const s = await server(t, { setup: false });
+  const hello = await s.request('GET', '/api/v1/hello');
+  assert.equal(hello.json.setupRequired, true);
+  assert.equal(hello.json.orgName, null);
+  assert.equal(hello.json.protocol, 1);
+  assert.ok(existsSync(path.join(s.dataDir, 'setup-code.txt')));
+  assert.equal((await s.request('POST', '/api/v1/auth/login', { body: { username: 'x', password: 'y', client: 'plugin' } })).json.error.code, 'SETUP_REQUIRED');
+
+  const wrong = await s.request('POST', '/api/v1/setup', { body: { setupCode: '0000-0000', orgName: '公司', ...OWNER } });
+  assert.equal(wrong.status, 403);
+  assert.equal(wrong.json.error.code, 'SETUP_CODE');
+
+  const weak = await s.request('POST', '/api/v1/setup', { body: { setupCode: SETUP_CODE, orgName: '公司', ...OWNER, password: 'short' } });
+  assert.equal(weak.json.error.code, 'INVALID_INPUT');
+  assert.match(weak.json.error.message, /密码至少 8 位/);
+
+  const ok = await s.request('POST', '/api/v1/setup', { body: { setupCode: SETUP_CODE, orgName: '鲸翼测试公司', ...OWNER } });
+  assert.equal(ok.status, 200);
+  assert.equal(ok.json.me.user.role, 'owner');
+  const cookie = cookieOf(ok);
+  assert.match(ok.headers['set-cookie'], /HttpOnly/i);
+  assert.match(ok.headers['set-cookie'], /SameSite=Strict/i);
+  assert.ok(!existsSync(path.join(s.dataDir, 'setup-code.txt')), '初始化后删掉初始化码文件');
+
+  const again = await s.request('POST', '/api/v1/setup', { body: { setupCode: SETUP_CODE, orgName: '别的公司', ...OWNER } });
+  assert.equal(again.json.error.code, 'SETUP_DONE');
+  assert.equal((await s.request('GET', '/api/v1/hello')).json.orgName, '鲸翼测试公司');
+  assert.equal((await s.request('GET', '/api/v1/admin/overview', { cookie })).status, 200);
+});
+
+test('登录：输错 5 次锁定；成员不能登录管理端；管理端改东西要带防跨站请求头', async t => {
+  const s = await server(t);
+  await member(s, { username: 'zhang' });
+  const adminLogin = await s.request('POST', '/api/v1/auth/login', { body: { username: 'zhang', password: 'member-pass-1', client: 'admin' } });
+  assert.equal(adminLogin.json.error.code, 'FORBIDDEN');
+
+  for (let i = 0; i < 5; i++) {
+    const bad = await s.request('POST', '/api/v1/auth/login', { body: { username: 'zhang', password: 'wrong-password', client: 'plugin' } });
+    assert.equal(bad.json.error.code, 'AUTH_INVALID');
+  }
+  const locked = await s.request('POST', '/api/v1/auth/login', { body: { username: 'zhang', password: 'member-pass-1', client: 'plugin' } });
+  assert.equal(locked.json.error.code, 'AUTH_LOCKED');
+  // 登录名大小写不同也算同一个账号。
+  assert.equal((await s.request('POST', '/api/v1/auth/login', { body: { username: 'ZHANG', password: 'member-pass-1', client: 'plugin' } })).json.error.code, 'AUTH_LOCKED');
+
+  const noHeader = await s.request('POST', '/api/v1/admin/departments', { cookie: s.adminCookie, csrf: false, body: { name: '研发部', parentId: null } });
+  assert.equal(noHeader.json.error.code, 'CSRF');
+  const unknown = await s.request('POST', '/api/v1/auth/login', { body: { username: 'nobody', password: 'whatever-1', client: 'plugin' } });
+  assert.equal(unknown.json.error.code, 'AUTH_INVALID');
+});
+
+test('停用和改角色马上生效：已登录的令牌立刻作废', async t => {
+  const s = await server(t);
+  const zhang = await member(s, { username: 'zhang' });
+  assert.equal((await s.request('GET', '/api/v1/me', { token: zhang.token })).json.user.username, 'zhang');
+  const disabled = await s.request('PATCH', `/api/v1/admin/users/${zhang.user.id}`, { cookie: s.adminCookie, body: { status: 'disabled' } });
+  assert.equal(disabled.json.status, 'disabled');
+  const after = await s.request('GET', '/api/v1/sync', { token: zhang.token });
+  assert.equal(after.status, 401);
+  assert.equal((await s.request('POST', '/api/v1/auth/login', { body: { username: 'zhang', password: 'member-pass-1', client: 'plugin' } })).json.error.code, 'ACCOUNT_DISABLED');
+
+  const owner = s.org.users().find(user => user.role === 'owner');
+  assert.equal((await s.request('PATCH', `/api/v1/admin/users/${owner.id}`, { cookie: s.adminCookie, body: { status: 'disabled' } })).json.error.code, 'FORBIDDEN');
+});
+
+test('邀请：带部门和人数上限，用完、过期、撤销后都不能再用', async t => {
+  const s = await server(t);
+  const rd = await s.request('POST', '/api/v1/admin/departments', { cookie: s.adminCookie, body: { name: '研发部', parentId: null } });
+  const created = await s.request('POST', '/api/v1/admin/invites', { cookie: s.adminCookie, body: { departmentId: rd.json.id, maxUses: 1 } });
+  assert.equal(created.status, 200);
+  const { link, invite } = created.json;
+  assert.match(link, /\/join\/[A-Za-z0-9_-]{32}$/);
+  const info = await s.request('GET', `/api/v1/invites/${invite.code}`);
+  assert.deepEqual([info.json.orgName, info.json.department, info.json.role], ['鲸翼测试公司', '研发部', 'member']);
+
+  const joined = await s.request('POST', '/api/v1/auth/join', { body: { code: invite.code, username: 'li', displayName: '李四', password: 'li-pass-123' } });
+  assert.equal(joined.status, 200);
+  assert.equal(joined.json.me.department.name, '研发部');
+  assert.equal(joined.json.me.org.name, '鲸翼测试公司');
+  assert.equal((await s.request('GET', '/api/v1/me', { token: joined.json.token })).json.user.displayName, '李四');
+
+  const used = await s.request('POST', '/api/v1/auth/join', { body: { code: invite.code, username: 'wang', displayName: '王五', password: 'wang-pass-123' } });
+  assert.equal(used.json.error.code, 'INVITE_EXPIRED');
+  assert.equal((await s.request('GET', '/api/v1/invites/not-a-real-invite-code-0000')).json.error.code, 'INVITE_INVALID');
+
+  const second = (await s.request('POST', '/api/v1/admin/invites', { cookie: s.adminCookie, body: { departmentId: null, maxUses: 5 } })).json.invite;
+  await s.request('DELETE', `/api/v1/admin/invites/${second.id}`, { cookie: s.adminCookie });
+  assert.equal((await s.request('GET', `/api/v1/invites/${second.code}`)).json.error.code, 'INVITE_EXPIRED');
+
+  const page = await s.request('GET', `/join/${invite.code}`);
+  assert.match(page.headers['content-type'], /text\/html/);
+  assert.match(page.headers['content-security-policy'], /default-src 'self'/);
+
+  // 管理员不能邀请管理员，只有所有者能。
+  const admin = await member(s, { username: 'admin2', role: 'admin', password: 'admin-pass-1' });
+  const adminCookie = cookieOf(await s.request('POST', '/api/v1/auth/login', { body: { username: 'admin2', password: 'admin-pass-1', client: 'admin' } }));
+  assert.ok(admin.user.id);
+  assert.equal((await s.request('POST', '/api/v1/admin/invites', { cookie: adminCookie, body: { departmentId: null, role: 'admin' } })).json.error.code, 'FORBIDDEN');
+});
+
+test('邀请页会转义企业名称，防止被插入网页代码', async t => {
+  const s = await server(t);
+  await s.request('PATCH', '/api/v1/admin/settings', { cookie: s.adminCookie, body: { orgName: '<script>alert(1)</script>' } });
+  const { invite } = (await s.request('POST', '/api/v1/admin/invites', { cookie: s.adminCookie, body: { departmentId: null } })).json;
+  const page = await s.request('GET', `/join/${invite.code}`);
+  assert.ok(!page.body.includes('<script>alert(1)</script>'));
+  assert.ok(page.body.includes('&lt;script&gt;'));
+});
+
+test('部门：不能移到自己的下级下面；有成员时不能删', async t => {
+  const s = await server(t);
+  const top = (await s.request('POST', '/api/v1/admin/departments', { cookie: s.adminCookie, body: { name: '总部', parentId: null } })).json;
+  const child = (await s.request('POST', '/api/v1/admin/departments', { cookie: s.adminCookie, body: { name: '研发部', parentId: top.id } })).json;
+  const loop = await s.request('PATCH', `/api/v1/admin/departments/${top.id}`, { cookie: s.adminCookie, body: { parentId: child.id } });
+  assert.equal(loop.json.error.code, 'INVALID_INPUT');
+  await member(s, { username: 'zhao', departmentId: child.id });
+  assert.equal((await s.request('DELETE', `/api/v1/admin/departments/${child.id}`, { cookie: s.adminCookie })).json.error.code, 'IN_USE');
+  const me = await s.request('POST', '/api/v1/auth/login', { body: { username: 'zhao', password: 'member-pass-1', client: 'plugin' } });
+  assert.deepEqual(me.json.me.department.path, ['总部', '研发部']);
+});
+
+test('操作记录不记密码', async t => {
+  const s = await server(t);
+  await member(s, { username: 'zhang' });
+  const { entries } = (await s.request('GET', '/api/v1/admin/audit', { cookie: s.adminCookie })).json;
+  assert.ok(entries.some(entry => entry.action === 'user.create'));
+  assert.ok(!JSON.stringify(entries).includes('member-pass-1'));
+});
+
+test('数据目录是更新版本写的时拒绝启动，不用旧程序打开', async t => {
+  const s = await server(t);
+  await s.app.close();
+  const db = new DatabaseSync(path.join(s.dataDir, 'whalewing-enterprise.db'));
+  db.exec('PRAGMA user_version = 99');
+  db.close();
+  await assert.rejects(createApp({ dataDir: s.dataDir, version: 'old' }), /更新版本/);
+});

@@ -1,0 +1,6 @@
+node_modules/
+.artifacts/
+server/admin-dist/
+admin/dist/
+*.tgz
+*.log

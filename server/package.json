@@ -1,0 +1,45 @@
+{
+  "name": "whalewing-enterprise-server",
+  "version": "0.2.1-rc.5.1",
+  "description": "鲸翼企业版服务端：账号、部门、权限和团队内容，带管理端网页",
+  "license": "AGPL-3.0-only",
+  "type": "module",
+  "bin": {
+    "whalewing-enterprise-server": "./bin/whalewing-enterprise-server.js"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "bin",
+    "src",
+    "admin-dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public"
+  },
+  "keywords": [
+    "whalewing",
+    "鲸翼",
+    "dsh",
+    "deepseek-harness",
+    "enterprise"
+  ],
+  "dependencies": {
+    "@fastify/cookie": "11.1.5",
+    "@fastify/rate-limit": "11.2.1",
+    "fastify": "5.12.7",
+    "fflate": "0.8.3",
+    "zod": "4.6.7"
+  }
+}

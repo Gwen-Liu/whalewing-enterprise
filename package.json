@@ -1,0 +1,24 @@
+{
+  "name": "whalewing-enterprise-workspace",
+  "private": true,
+  "type": "module",
+  "description": "鲸翼企业版：服务端、管理端和员工端组合包",
+  "license": "AGPL-3.0-only",
+  "workspaces": [
+    "shared",
+    "server",
+    "admin",
+    "plugin"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node scripts/test.mjs",
+    "start": "node server/bin/whalewing-enterprise-server.js --data .artifacts/dev-data"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

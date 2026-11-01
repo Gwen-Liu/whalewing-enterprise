@@ -1,0 +1,13 @@
+{
+  "name": "@whalewing-enterprise/shared",
+  "version": "0.2.1-rc.5.1",
+  "private": true,
+  "type": "module",
+  "license": "AGPL-3.0-only",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "dependencies": {
+    "zod": ">=4.4.3 <5"
+  }
+}
