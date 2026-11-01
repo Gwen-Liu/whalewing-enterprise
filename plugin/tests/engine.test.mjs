@@ -51,8 +51,11 @@ async function world(t) {
   const cookie = setup.headers.get('set-cookie').split(';')[0];
   const admin = (method, url, body) => api(method, '/api/v1/admin' + url, body, cookie);
   const makeEngine = (name = 'a') => {
+    // published 模拟 Host 每次收到变化就把专家列表推给鲸翼。
+    const published = [];
     const engine = new Engine({ baseDir: path.join(dir, `client-${name}`), credentials: fakeCredentials(), credentialKey: `dsh-whalewing-enterprise/session-${name}`,
-      personal: fakePersonal(), version: '0.2.1-rc.5.1', now: () => clock, log: () => {} });
+      personal: fakePersonal(), version: '0.2.1-rc.5.1', now: () => clock, log: () => {}, onChange: () => published.push(engine.expertItems()) });
+    engine.published = published;
     engines.push(engine);
     return engine;
   };
@@ -177,6 +180,7 @@ test('管理员停用账号：下次同步本机团队内容撤掉、令牌删�
   assert.equal(status.state, 'expired');
   assert.equal(status.lastError.code, 'AUTH_EXPIRED');
   assert.equal(engine.expertItems().length, 0);
+  assert.deepEqual(engine.published.at(-1), [], '登录失效后推给鲸翼的专家列表是空的');
   assert.equal((await engine.searchKnowledge('评审')).notes.length, 0);
   assert.deepEqual(await readdir(engine.skillsDir), []);
   assert.equal(engine.credentials.records.size, 0);
@@ -226,8 +230,10 @@ test('退出团队：服务端作废令牌，本机团队内容和状态都删�
   await engine.start();
   await engine.join({ address: link, username: 'zhang', displayName: '张三', password: 'zhang-pass-1' });
   const token = [...engine.credentials.records.values()][0].payload.token;
+  assert.equal(engine.published.at(-1).length, 1, '加入后推给鲸翼一位团队专家');
   const status = await engine.leave();
   assert.equal(status.state, 'disconnected');
+  assert.deepEqual(engine.published.at(-1), [], '退出后推给鲸翼的专家列表是空的');
   assert.equal(engine.credentials.records.size, 0);
   assert.ok(!existsSync(engine.stateFile));
   assert.deepEqual(await readdir(engine.skillsDir), []);

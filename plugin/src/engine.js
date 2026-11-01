@@ -234,6 +234,8 @@ export class Engine {
     this.state = null;
     await this.saveState();
     await this.rebuild();
+    // 团队专家是推给鲸翼的，清完缓存要告诉鲸翼，不然专家团队里还留着。
+    this.notify();
   }
 
   /** 登录失效（过期、被停用、令牌没了）：团队内容撤掉，留下服务器地址方便重新登录。 */
@@ -243,6 +245,7 @@ export class Engine {
     this.state = { ...this.state, status: 'expired', lastError: { code: error.code, message: error.message }, lastAttemptAt: new Date(this.now()).toISOString(), etag: null, items: [] };
     await this.saveState();
     await this.rebuild();
+    this.notify();
   }
 
   async purgeCache() {
@@ -281,7 +284,7 @@ export class Engine {
       }
     } catch (error) {
       if (this.closed) throw error;
-      if (AUTH_LOST.has(error.code)) { await this.expire(error); this.notify(); return this.status(); }
+      if (AUTH_LOST.has(error.code)) { await this.expire(error); return this.status(); }
       this.state.lastError = { code: error.code ?? 'NETWORK', message: error.message };
       // 离线太久（超过企业设的天数）就先撤掉团队内容，连上后再下载回来。
       const limit = (this.state.me?.org?.offlineDays ?? 7) * DAY;
