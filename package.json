@@ -16,9 +16,11 @@
   "scripts": {
     "build": "node scripts/build.mjs",
     "test": "node scripts/test.mjs",
-    "start": "node server/bin/whalewing-enterprise-server.js --data .artifacts/dev-data"
+    "start": "node server/bin/whalewing-enterprise-server.js --data .artifacts/dev-data",
+    "test:e2e": "node --test --test-concurrency=1 --test-timeout=600000 e2e/specs/*.test.mjs"
   },
   "devDependencies": {
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "playwright": "1.62.1"
   }
 }

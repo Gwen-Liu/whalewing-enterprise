@@ -83,7 +83,6 @@ function ItemDrawer({ kind, item, busy, onClose, onSubmit }) {
   const meta = KIND[kind];
   return (
     <Drawer title={item ? `${meta.unit}设置：${item.title}` : meta.add} busy={busy} dirty={dirty} onClose={onClose} footer={[
-      <button key="cancel" type="button" disabled={busy} onClick={onClose}>取消</button>,
       <button key="ok" type="button" className="primary" disabled={busy || !form.title.trim() || (!item && !form.slug)} onClick={() => onSubmit(item ? form : { kind, ...form })}>{item ? '保存修改' : `创建${meta.unit}`}</button>,
     ]}>
       <Field label="名称"><input value={form.title} maxLength={60} onChange={event => setForm({ ...form, title: event.target.value })} autoFocus /></Field>
@@ -96,8 +95,8 @@ function ItemDrawer({ kind, item, busy, onClose, onSubmit }) {
       <Field label="介绍" hint={kind === 'skill' ? '一句话说明这个技能做什么，会写进 SKILL.md 的 description。' : '一句话说明这里放什么。'}>
         <textarea rows={3} maxLength={240} value={form.description} onChange={event => setForm({ ...form, description: event.target.value })} />
       </Field>
-      <Field label="谁能看"><SubjectPicker allowAll value={form.access.view} emptyText="还没选，只有管理员能看" onChange={view => setForm({ ...form, access: { ...form.access, view } })} /></Field>
-      <Field label="维护人" hint="维护人能在自己的鲸翼里改这项内容；不选就只有管理员能改。维护人自动能看。">
+      <Field group label="谁能看"><SubjectPicker allowAll value={form.access.view} emptyText="还没选，只有管理员能看" onChange={view => setForm({ ...form, access: { ...form.access, view } })} /></Field>
+      <Field group label="维护人" hint="维护人能在自己的鲸翼里改这项内容；不选就只有管理员能改。维护人自动能看。">
         <SubjectPicker value={form.access.maintain} emptyText="只有管理员能改" onChange={maintain => setForm({ ...form, access: { ...form.access, maintain } })} />
       </Field>
     </Drawer>
@@ -175,7 +174,6 @@ function TextFileDrawer({ title, file, kind, busy, onClose, onSubmit, pathEditab
   const dirty = text !== (file?.text ?? '') || (pathEditable && path !== (file?.path ?? ''));
   return (
     <Drawer title={title} busy={busy} dirty={dirty} onClose={onClose} footer={[
-      <button key="cancel" type="button" disabled={busy} onClick={onClose}>取消</button>,
       <button key="ok" type="button" className="primary" disabled={busy || !path.trim()} onClick={() => onSubmit(path.trim(), text)}>{file ? '保存修改' : '创建文件'}</button>,
     ]}>
       {pathEditable ? (
@@ -198,7 +196,6 @@ function ExpertDrawer({ value, busy, onClose, onSubmit }) {
   };
   return (
     <Drawer title={`编辑专家：${value.name}`} busy={busy} dirty={dirty} onClose={onClose} footer={[
-      <button key="cancel" type="button" disabled={busy} onClick={onClose}>取消</button>,
       <button key="ok" type="button" className="primary" disabled={busy} onClick={submit}>保存修改</button>,
     ]}>
       <Field label="专家名称"><input value={form.name} maxLength={40} onChange={event => setForm({ ...form, name: event.target.value })} /></Field>

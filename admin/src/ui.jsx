@@ -83,8 +83,8 @@ export function ConfirmDialog({ title, message, confirmLabel, cancelLabel = '取
   );
 }
 
-/** 右侧抽屉。dirty 为 true 时关闭前先确认放弃修改。 */
-export function Drawer({ title, onClose, children, footer, busy, dirty }) {
+/** 右侧抽屉。dirty 为 true 时，点“取消”、按 Esc、点遮罩或 × 关闭前都先确认放弃修改。 */
+export function Drawer({ title, onClose, children, footer, busy, dirty, cancelLabel = '取消' }) {
   const [asking, setAsking] = useState(false);
   const close = useCallback(() => { if (busy) return; if (dirty) setAsking(true); else onClose(); }, [busy, dirty, onClose]);
   useEscape(close, busy || asking);
@@ -94,7 +94,8 @@ export function Drawer({ title, onClose, children, footer, busy, dirty }) {
       <aside className="drawer" role="dialog" aria-modal="true" aria-labelledby={titleId}>
         <header><h2 id={titleId}>{title}</h2><button type="button" className="icon" aria-label="关闭" disabled={busy} onClick={close}>×</button></header>
         <div className="drawer-body">{children}</div>
-        {footer && <footer>{footer}</footer>}
+        {/* “取消”由抽屉自己放，和 Esc、点遮罩、点 × 走同一条路：有改动时先问要不要放弃。 */}
+        <footer><button type="button" disabled={busy} onClick={close}>{cancelLabel}</button>{footer}</footer>
       </aside>
       {asking && <ConfirmDialog title="放弃修改" message="填写的内容还没保存，关掉就没有了。" confirmLabel="放弃修改" cancelLabel="继续编辑" danger
         onConfirm={() => { setAsking(false); onClose(); }} onCancel={() => setAsking(false)} />}
@@ -145,7 +146,14 @@ export function PageHeader({ title, summary, actions }) {
   );
 }
 
-export function Field({ label, hint, children }) {
+/**
+ * 表单字段。里面只有一个输入框时用 <label>，点字段名就能聚焦；
+ * 里面是一组控件（单选、按钮、下拉）时传 group，用分组容器，免得点说明文字误触第一个单选框。
+ */
+export function Field({ label, hint, children, group }) {
+  if (group) {
+    return <div className="field" role="group" aria-label={label}><span className="field-label">{label}</span>{children}{hint && <span className="field-hint">{hint}</span>}</div>;
+  }
   return <label className="field"><span className="field-label">{label}</span>{children}{hint && <span className="field-hint">{hint}</span>}</label>;
 }
 

@@ -174,7 +174,6 @@ function InviteDrawer({ busy, departments, isOwner, defaultDepartment, onClose, 
   const [form, setForm] = useState({ departmentId: defaultDepartment, role: 'member', maxUses: 1, days: 7 });
   return (
     <Drawer title="邀请成员" busy={busy} onClose={onClose} footer={[
-      <button key="cancel" type="button" disabled={busy} onClick={onClose}>取消</button>,
       <button key="ok" type="button" className="primary" disabled={busy} onClick={() => onSubmit({ ...form, maxUses: Number(form.maxUses), days: Number(form.days) })}>生成邀请链接</button>,
     ]}>
       <p className="muted">生成一条邀请链接发给员工。员工在鲸翼「团队」页签粘贴后，自己设置登录名和密码。</p>
@@ -221,7 +220,6 @@ function UserDrawer({ busy, user, departments, isOwner, defaultDepartment, onClo
   };
   return (
     <Drawer title={user ? `编辑 ${user.displayName}` : '新建账号'} busy={busy} dirty={dirty} onClose={onClose} footer={[
-      <button key="cancel" type="button" disabled={busy} onClick={onClose}>取消</button>,
       <button key="ok" type="button" className="primary" disabled={busy} onClick={submit}>{user ? '保存修改' : '创建账号'}</button>,
     ]}>
       {!user && <p className="muted">直接替员工建好账号，再把登录名和密码告诉他。更推荐用“邀请成员”，让员工自己设密码。</p>}
@@ -244,7 +242,6 @@ function PasswordDrawer({ busy, user, onClose, onSubmit }) {
   const [password, setPassword] = useState('');
   return (
     <Drawer title={`重置 ${user.displayName} 的密码`} busy={busy} dirty={Boolean(password)} onClose={onClose} footer={[
-      <button key="cancel" type="button" disabled={busy} onClick={onClose}>取消</button>,
       <button key="ok" type="button" className="primary" disabled={busy || password.length < 8} onClick={() => onSubmit(password)}>重置密码</button>,
     ]}>
       <p className="muted">重置后他在所有电脑上都要用新密码重新登录。</p>
@@ -259,7 +256,6 @@ function DepartmentDrawer({ busy, department, parentId, departments, onClose, on
   const dirty = department ? name !== department.name || parent !== department.parentId : Boolean(name);
   return (
     <Drawer title={department ? `修改部门 ${department.name}` : '新建部门'} busy={busy} dirty={dirty} onClose={onClose} footer={[
-      <button key="cancel" type="button" disabled={busy} onClick={onClose}>取消</button>,
       <button key="ok" type="button" className="primary" disabled={busy || !name.trim()} onClick={() => onSubmit({ name: name.trim(), parentId: parent })}>{department ? '保存修改' : '创建部门'}</button>,
     ]}>
       <Field label="部门名称"><input value={name} maxLength={40} onChange={event => setName(event.target.value)} autoFocus /></Field>
