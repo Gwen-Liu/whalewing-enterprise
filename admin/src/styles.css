@@ -110,14 +110,16 @@ input[type="search"] { max-width: 240px; }
 .nav-list a:hover { background: var(--brand-soft); }
 .nav-list a.active { background: var(--sky-soft); color: var(--brand); font-weight: 600; }
 .sidebar-foot { margin-top: auto; display: flex; justify-content: space-between; align-items: center; padding: 0 8px; font-size: 13px; }
-.main { padding: 28px 32px 48px; max-width: 1200px; width: 100%; }
+/* 内容区跟着窗口宽度铺开；特别宽的屏幕上最多 1680 像素、居中，免得一行字太长。 */
+.main { padding: 28px clamp(16px, 2.5vw, 48px) 48px; max-width: 1680px; width: 100%; min-width: 0; margin: 0 auto; box-sizing: border-box; }
 .page-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; flex-wrap: wrap; margin-bottom: 18px; }
 .page-header > div:first-child { display: grid; gap: 4px; max-width: 760px; }
 .crumbs { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; color: var(--muted); font-size: 13px; }
 
 @media (max-width: 760px) {
-  .shell { grid-template-columns: 1fr; }
-  .sidebar { position: static; height: auto; flex-direction: column; gap: 8px; border-right: 0; border-bottom: 1px solid var(--line); padding: 12px 16px; }
+  /* minmax(0, 1fr)：不许里面横向滚动的导航和卡片把整页撑宽。 */
+  .shell { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { min-width: 0; position: static; height: auto; flex-direction: column; gap: 8px; border-right: 0; border-bottom: 1px solid var(--line); padding: 12px 16px; }
   .brand { padding-bottom: 10px; }
   .nav-list { display: flex; overflow-x: auto; gap: 4px; }
   .nav-list a { white-space: nowrap; }
@@ -129,6 +131,8 @@ input[type="search"] { max-width: 240px; }
 .auth { min-height: 100vh; display: grid; place-items: center; padding: 24px 16px; }
 .auth-card { width: min(520px, 100%); display: grid; gap: 10px; padding: 28px; }
 .form { display: grid; gap: 14px; }
+/* 设置页的表单卡片不跟着铺满，输入框太长不好填。 */
+.section.form { max-width: 960px; }
 .form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
 @media (max-width: 560px) { .form-grid { grid-template-columns: 1fr; } }
 .field { display: grid; gap: 6px; align-content: start; }
@@ -138,11 +142,16 @@ input[type="search"] { max-width: 240px; }
 .radio { display: inline-flex; align-items: center; margin-right: 12px; }
 
 /* ---------- 概览 ---------- */
-.stats { grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+/* 概览六张卡片：宽屏一行六张，中等宽度两行各三张，窄屏每行两张，不出现落单的一张。 */
+.stats { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+@media (max-width: 1320px) { .stats { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .stat { display: grid; gap: 4px; text-align: left; padding: 16px; }
 .stat strong { font: 600 28px/1.2 var(--serif); color: var(--brand); }
 .timeline { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
-.timeline li { display: grid; grid-template-columns: 120px 1fr auto; gap: 12px; font-size: 13px; }
+/* 时间、谁做了什么、对象三列靠左对齐，宽屏上对象不会被甩到最右边。 */
+.timeline li { display: grid; grid-template-columns: 110px minmax(0, 1fr) minmax(0, 1.4fr); gap: 16px; font-size: 13px; }
+.timeline li > span:last-child { overflow-wrap: anywhere; }
 @media (max-width: 560px) { .timeline li { grid-template-columns: 1fr; gap: 0; } }
 
 /* ---------- 列表、表格、树 ---------- */
