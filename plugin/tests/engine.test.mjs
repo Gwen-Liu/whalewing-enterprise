@@ -1,7 +1,7 @@
 // 员工端核心逻辑对着真实的服务端跑：加入、同步、权限变化、维护、停用、离线、退出。
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -88,6 +88,7 @@ test('加入前先看清是哪家企业；加入后团队内容落到本机缓�
   assert.deepEqual(status.items.map(item => `${item.kind}/${item.slug}`).sort(), ['expert/reviewer', 'knowledge/handbook', 'skill/weekly-report']);
   assert.ok(!JSON.stringify(status).includes('token'), '状态里不带令牌');
 
+  assert.equal(engine.skillsDir, realpathSync.native(engine.skillsDir), '登记给鲸翼的技能目录是真实路径（不是短文件名或联接）');
   const skill = await readFile(path.join(engine.skillsDir, 'weekly-report', 'SKILL.md'), 'utf8');
   assert.match(skill, /^---\nname: weekly-report/);
 

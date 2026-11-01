@@ -1,6 +1,6 @@
 // 员工端的核心：连接和登录、同步团队内容到本机缓存、给鲸翼个人版提供团队专家和团队知识。
 // 不碰员工的个人知识、个人技能和会话；只有员工点“提交到团队”的那一篇才会发给服务端。
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, realpathSync } from 'node:fs';
 import { mkdir, readdir, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
@@ -60,13 +60,16 @@ async function removeEmptyDirs(dir, keep) {
 
 export class Engine {
   constructor({ baseDir, credentials, credentialKey, personal, version = '0.0.0', fetchImpl, lookup, now = () => Date.now(), onChange = () => {}, log = () => {} }) {
-    this.baseDir = baseDir;
-    this.cacheDir = path.join(baseDir, 'cache');
-    this.tmpDir = path.join(baseDir, 'tmp');
+    mkdirSync(path.join(baseDir, 'cache', 'skills'), { recursive: true });
+    // 用真实路径：DSH 报上来的技能位置是真实路径，登记的目录要是写成短文件名（如 QIANQI~1）或经过联接，
+    // 鲸翼比较时对不上，会把团队技能当成不属于扩展而滤掉。
+    const root = realpathSync.native(baseDir);
+    this.baseDir = root;
+    this.cacheDir = path.join(root, 'cache');
+    this.tmpDir = path.join(root, 'tmp');
     // 技能缓存目录在登记扩展时交给鲸翼；DSH 会监听这个目录，同步时往里增删技能就行。
     this.skillsDir = path.join(this.cacheDir, 'skills');
-    mkdirSync(this.skillsDir, { recursive: true });
-    this.stateFile = path.join(baseDir, 'state.json');
+    this.stateFile = path.join(root, 'state.json');
     this.credentials = credentials;
     this.credentialKey = credentialKey;
     this.personal = personal;

@@ -157,7 +157,8 @@ export async function openWhaleWing(page, url) {
 
 /** 切到鲸翼的某个页签，等它成为选中状态。 */
 export async function openTab(page, name) {
-  const tab = page.locator('.ww-workbench-header button[data-tab]', { hasText: name });
+  // 名字完全一致才算：“团队”不能匹配到“专家团队”。
+  const tab = page.locator('.ww-workbench-header button[data-tab]').filter({ hasText: new RegExp(`^\\s*${name}\\s*$`) });
   await tab.click();
   await page.waitForFunction(label => [...document.querySelectorAll('.ww-workbench-header button[data-tab]')]
     .some(button => button.textContent.trim() === label && button.getAttribute('aria-pressed') === 'true'), name);
