@@ -2,7 +2,7 @@
 
 **鲸翼企业版**以开源的[鲸翼个人版](https://github.com/gwen-liu/whalewing)为底座，把每个人的 DSH 超级个体工作台连成团队：企业集中维护**团队知识、团队专家、团队技能**，按部门和人分配谁能看、谁能改；员工在自己的鲸翼里直接用，个人版原来的功能一样不少。
 
-> 当前版本 `0.2.1-rc.5.1`，适配 DeepSeek Harness（DSH）`0.2.1-rc.5`，还在预发布阶段。
+> 最新发布版 `0.2.1-rc.5.1`（[预发布](https://github.com/gwen-liu/whalewing-enterprise/releases/tag/v0.2.1-rc.5.1)），适配 DeepSeek Harness（DSH）`0.2.1-rc.5`；当前开发版本 `0.2.1-rc.5.2`。
 
 ## 由三部分组成
 
