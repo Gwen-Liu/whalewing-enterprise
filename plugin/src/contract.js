@@ -23,6 +23,14 @@ export const input = z.discriminatedUnion('action', [
   z.strictObject({ action: z.literal('remove'), kind, slug, path: relPath, baseHash: hash }),
   z.strictObject({ action: z.literal('personalSearch'), query: text(200) }),
   z.strictObject({ action: z.literal('submitPersonal'), notePath: text(400), slug, path: relPath }),
+  // 企业管理：事项和项目。内容由服务端校验，这里只限定操作和大小。
+  z.strictObject({
+    action: z.literal('work'),
+    op: z.enum(['context', 'directory', 'mine', 'search', 'get', 'create', 'update', 'comment', 'remove', 'board', 'export', 'projects', 'createProject', 'updateProject', 'deleteProject']),
+    id: z.number().int().positive().optional(),
+    params: z.record(z.string(), z.union([z.string().max(200), z.number(), z.boolean(), z.null()])).optional(),
+    body: z.record(z.string(), z.unknown()).optional(),
+  }),
 ]);
 
 // 返回的内容按动作不同，结构由 Host 保证；这里只要求是能 JSON 往返的对象。

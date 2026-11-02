@@ -250,7 +250,7 @@ export async function createApp(options) {
   app.get(`${w}/directory`, async request => {
     const { access } = accessOf(request);
     return {
-      users: org.users().filter(user => user.status === 'active').map(user => ({ id: user.id, displayName: user.displayName, departmentId: user.departmentId, inScope: access.inScope(user.id) })),
+      users: org.users().filter(user => user.status === 'active').map(user => ({ id: user.id, username: user.username, displayName: user.displayName, departmentId: user.departmentId, inScope: access.inScope(user.id) })),
       departments: org.departments().map(department => ({ id: department.id, name: department.name, parentId: department.parentId })),
     };
   });

@@ -3,11 +3,13 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { Service } from '@deepseek-ai/cordis';
 import { credentialKey } from '@deepseek-ai/dsh-credentials';
+import { defineTool } from '@deepseek-ai/dsh-tools';
 import { bindTypertRemote, RemoteError } from '@deepseek-ai/dsh-typert-protocol';
 import manifest from '../package.json' with { type: 'json' };
 import { featureId, packageName } from '../identity.js';
 import { contract, input, namespace } from './contract.js';
 import { Engine } from './engine.js';
+import { approvalReason, teamWorkTool, TOOL_NAME } from './tool.js';
 import tabIcon from './tab-icon.svg';
 
 const LABEL = { zh: '团队', en: 'Team' };
@@ -53,6 +55,17 @@ export default class WhalewingEnterprise extends Service {
 
     this.typertRemote = bindTypertRemote(this, namespace, { namespace });
     ctx.typert.register(contract.host);
+
+    // 模型工具 team_work：插件自己登记的工具，小鲸和所有专家都能用（个人版只在专家会话里隐藏没绑定的 MCP 工具）。
+    // 写操作走 DSH 原生审批：员工点同意才发出；没有审批服务或会话关了审批，就不改。
+    ctx.inject(['tools'], scope => {
+      const approve = async ({ summary, exec }) => {
+        const approval = scope.get('approval');
+        if (!approval || !exec.agent) return 'unavailable';
+        return approval.request({ agent: exec.agent, toolName: TOOL_NAME, callId: exec.callId, ...approvalReason(summary), ...(exec.signal ? { signal: exec.signal } : {}) });
+      };
+      scope.tools.register(defineTool(teamWorkTool({ engine: this.engine, approve })));
+    });
     ctx.effect(() => () => this.engine.close());
     this.engine.start().catch(error => log(`启动失败：${error.message}`));
   }

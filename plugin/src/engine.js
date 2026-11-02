@@ -172,7 +172,7 @@ export class Engine {
       const hello = await this.hello(target, signal);
       const { json } = await request(target, 'GET', `/invites/${invite.code}`, { signal, fetchImpl: this.net.fetchImpl });
       const info = schemas.inviteInfo.parse(json);
-      return { mode: 'invite', server: target.origin, encrypted: target.encrypted, private: target.private, orgName: hello.orgName, department: info.department, role: info.role, expiresAt: info.expiresAt };
+      return { mode: 'invite', server: target.origin, encrypted: target.encrypted, private: target.private, orgName: hello.orgName, department: info.department, role: info.role, roleName: info.roleName ?? null, expiresAt: info.expiresAt };
     }
     if (/\/join\//.test(address)) throw fail('ADDRESS', invite.reason);
     const target = await this.target(address);
@@ -245,7 +245,7 @@ export class Engine {
   async expire(error) {
     await this.credentials.deleteRecord(this.credentialKey);
     await this.purgeCache();
-    this.state = { ...this.state, status: 'expired', lastError: { code: error.code, message: error.message }, lastAttemptAt: new Date(this.now()).toISOString(), etag: null, items: [] };
+    this.state = { ...this.state, status: 'expired', lastError: { code: error.code, message: error.message }, lastAttemptAt: new Date(this.now()).toISOString(), etag: null, items: [], workCache: null };
     await this.saveState();
     await this.rebuild();
     this.notify();
@@ -294,6 +294,7 @@ export class Engine {
       if (!this.state.hidden && this.state.lastOkAt && this.now() - Date.parse(this.state.lastOkAt) > limit) {
         await this.purgeCache();
         this.state.hidden = true;
+        this.state.workCache = null;
       }
       await this.saveState();
       await this.rebuild();
@@ -489,8 +490,64 @@ export class Engine {
     return { saved: result, status: this.status() };
   }
 
+  // ---------- 企业管理：事项和项目 ----------
+  // 员工端不整份同步事项，按需查询；只缓存“我的工作”，连不上时拿来看（标明是缓存，不能改）。
+
+  async workRequest(method, url, { body, signal, raw = false } = {}) {
+    const { target, token } = await this.connectionFor();
+    try {
+      const response = await request(target, method, '/work' + url, { token, body, signal, raw, fetchImpl: this.net.fetchImpl });
+      return raw ? response.buffer.toString('utf8') : response.json;
+    } catch (error) {
+      if (!this.closed && AUTH_LOST.has(error.code)) await this.expire(error);
+      throw error;
+    }
+  }
+
+  async mine(signal) {
+    try {
+      const data = await this.workRequest('GET', '/mine', { signal });
+      this.state.workCache = { at: new Date(this.now()).toISOString(), data };
+      await this.saveState();
+      return { ...data, cached: false };
+    } catch (error) {
+      const cache = this.state?.status === 'connected' ? this.state.workCache : null;
+      if (cache && OFFLINE_CODES.has(error.code)) return { ...cache.data, cached: true, cachedAt: cache.at, problem: error.message };
+      throw error;
+    }
+  }
+
+  async work({ op, id, params = {}, body }, signal) {
+    const query = keys => {
+      const search = new URLSearchParams();
+      for (const key of keys) if (params[key] !== undefined && params[key] !== null && params[key] !== '') search.set(key, String(params[key]));
+      const text = search.toString();
+      return text ? `?${text}` : '';
+    };
+    const item = () => { if (!Number.isInteger(id) || id <= 0) throw fail('INVALID_INPUT', '缺少事项编号'); return id; };
+    switch (op) {
+      case 'context': return this.workRequest('GET', '/context', { signal });
+      case 'directory': return this.workRequest('GET', '/directory', { signal });
+      case 'mine': return this.mine(signal);
+      case 'search': return this.workRequest('GET', '/items' + query(['assigneeId', 'projectId', 'departmentId', 'typeId', 'waitingOn', 'category', 'overdue', 'q', 'limit', 'offset']), { signal });
+      case 'get': return this.workRequest('GET', `/items/${item()}`, { signal });
+      case 'create': return this.workRequest('POST', '/items', { body, signal });
+      case 'update': return this.workRequest('PATCH', `/items/${item()}`, { body, signal });
+      case 'comment': return this.workRequest('POST', `/items/${item()}/comments`, { body, signal });
+      case 'remove': return this.workRequest('DELETE', `/items/${item()}`, { signal });
+      case 'board': return this.workRequest('GET', '/board' + query(['departmentId', 'projectId']), { signal });
+      case 'export': return { csv: await this.workRequest('GET', '/export' + query(['assigneeId', 'projectId', 'departmentId', 'category', 'overdue', 'q']), { signal, raw: true }) };
+      case 'projects': return this.workRequest('GET', '/projects', { signal });
+      case 'createProject': return this.workRequest('POST', '/projects', { body, signal });
+      case 'updateProject': return this.workRequest('PATCH', `/projects/${item()}`, { body, signal });
+      case 'deleteProject': return this.workRequest('DELETE', `/projects/${item()}`, { signal });
+      default: throw fail('INVALID_INPUT', '不认识的事项操作');
+    }
+  }
+
   async manage(value, signal) {
     switch (value.action) {
+      case 'work': return this.work(value, signal);
       case 'status': return this.status();
       case 'probe': return this.probe(value, signal);
       case 'join': return this.join(value, signal);

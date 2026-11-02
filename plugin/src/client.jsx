@@ -1,37 +1,13 @@
-// 浏览器入口：在鲸翼工作台加一个「团队」页签。
-// 组件和样式只用鲸翼工作台公开的 workbench.ui 和 ww-* 类，颜色跟随 DSH 皮肤。
+// 浏览器入口：在鲸翼工作台加一个「团队」页签，里面分页：我的工作、团队看板、项目、团队资料。
+// 不另开页签，免得工作台页签太多。组件和样式只用鲸翼工作台公开的 workbench.ui 和 ww-* 类，颜色跟随 DSH 皮肤。
 import * as React from 'react';
 import { featureId } from '../identity.js';
-import { contract, input, namespace } from './contract.js';
+import { contract, namespace } from './contract.js';
+import { ago, call, Field, inputStyle, ROLE } from './common.jsx';
+import { BoardPage, MyWorkPage, ProjectsPage } from './work-ui.jsx';
 
 const { useCallback, useEffect, useMemo, useRef, useState } = React;
 export const inject = ['slots', 'locale', 'remote'];
-
-const ROLE = { owner: '所有者', admin: '管理员', member: '成员' };
-
-async function call(remote, raw, signal) {
-  const value = input.parse(raw);
-  signal?.throwIfAborted();
-  const reply = await remote.manage(value, signal);
-  signal?.throwIfAborted();
-  if (reply?.ok !== true) throw Object.assign(new Error(reply?.error?.message || '没有拿到结果，请刷新后再试'), { code: reply?.error?.code });
-  return reply.value;
-}
-
-const ago = value => {
-  if (!value) return '还没同步过';
-  const diff = Date.now() - Date.parse(value);
-  if (diff < 60_000) return '刚刚';
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
-  return `${Math.floor(diff / 86_400_000)} 天前`;
-};
-
-function Field({ label, hint, children }) {
-  return <label className="ww-field" style={{ display: 'grid', gap: 4 }}><span>{label}</span>{children}{hint && <span className="ww-muted" style={{ fontSize: 12 }}>{hint}</span>}</label>;
-}
-
-const inputStyle = { width: '100%', boxSizing: 'border-box' };
 
 // ---------- 没连接：加入或登录 ----------
 
@@ -79,7 +55,7 @@ function ConnectView({ status, run, workbench }) {
           <div style={{ display: 'grid', gap: 10 }}>
             <p>服务器 <code>{probe.server}</code>{probe.encrypted ? '（加密连接）' : ''}</p>
             {!probe.encrypted && <p className="ww-muted">这是内网地址，连接没有加密。只在公司内网里使用时可以接受。</p>}
-            {probe.mode === 'invite' && <p className="ww-muted">加入后在{probe.department ? `「${probe.department}」` : '企业里'}，身份是{ROLE[probe.role]}。</p>}
+            {probe.mode === 'invite' && <p className="ww-muted">加入后在{probe.department ? `「${probe.department}」` : '企业里'}，身份是{probe.roleName ?? ROLE[probe.role]}。</p>}
             <p className="ww-muted">加入后，企业维护的专家和技能会在你的电脑上让模型读写文件、执行命令。请确认这是你所在的企业。企业看不到你的个人知识、个人技能和会话。</p>
             {probe.mode === 'invite' && <Field label="你的名字"><input style={inputStyle} value={form.displayName} maxLength={40} onChange={event => setForm({ ...form, displayName: event.target.value })} /></Field>}
             <Field label="登录名" hint={probe.mode === 'invite' ? '字母、数字、点、短横线和下划线，以后换电脑也用它登录' : ''}>
@@ -222,7 +198,8 @@ function SpaceCard({ space, onOpen, menu }) {
   );
 }
 
-function ConnectedView({ status, run, workbench }) {
+/** 团队资料：第一版的知识空间、团队专家、团队技能，以及我的信息、退出团队。 */
+function LibraryView({ status, run, workbench }) {
   const { ConfirmDialog, ActionMenu, Drawer } = workbench.ui;
   const [drawer, setDrawer] = useState(null);
   const [leaving, setLeaving] = useState(false);
@@ -248,18 +225,9 @@ function ConnectedView({ status, run, workbench }) {
 
   return (
     <>
-      {status.state === 'offline' && (
-        <section className="ww-section">
-          <strong>{status.hidden ? '离线太久，团队内容先收起来了' : '暂时连不上企业服务端'}</strong>
-          <p className="ww-muted">{status.lastError?.message}。{status.hidden
-            ? `超过企业规定的 ${status.offlineDays} 天没连上，团队内容已从本机撤掉，连上后会自动恢复。`
-            : `上次同步在 ${ago(status.lastOkAt)}，团队内容照常能用；超过 ${status.offlineDays} 天还连不上会先收起来。`}</p>
-        </section>
-      )}
-
       <section className="ww-section" style={{ display: 'grid', gap: 6 }}>
         <div className="ww-row" style={{ justifyContent: 'space-between' }}>
-          <strong>{me.user.displayName}<span className="ww-muted">（{me.user.username} · {ROLE[me.user.role]}）</span></strong>
+          <strong>{me.user.displayName}<span className="ww-muted">（{me.user.username} · {me.access?.roleName ?? ROLE[me.user.role]}）</span></strong>
           <button type="button" className="ww-danger" onClick={() => setLeaving(true)}>退出团队</button>
         </div>
         <span className="ww-muted">{me.org.name}{me.department ? ` · ${me.department.path.join(' / ')}` : ''} · 服务器 {status.server}{status.encrypted ? '' : '（内网，未加密）'}</span>
@@ -330,6 +298,60 @@ function ConnectedView({ status, run, workbench }) {
   );
 }
 
+// ---------- 已连接：二级导航 ----------
+
+const PAGES = [
+  { id: 'mine', label: '我的工作' },
+  { id: 'board', label: '团队看板' },
+  { id: 'projects', label: '项目' },
+  { id: 'library', label: '团队资料' },
+];
+
+function TeamPages({ status, run, workbench, api, reloadKey }) {
+  const [page, setPage] = useState('mine');
+  const [context, setContext] = useState(null);
+  const [directory, setDirectory] = useState(null);
+  const [problem, setProblem] = useState(null);
+  const userId = status.me?.user?.id;
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all([api.work('context', {}, controller.signal), api.work('directory', {}, controller.signal)])
+      .then(([nextContext, nextDirectory]) => { setContext({ ...nextContext, me: userId }); setDirectory(nextDirectory); setProblem(null); })
+      .catch(error => { if (!controller.signal.aborted) setProblem(error.message); });
+    return () => controller.abort();
+  }, [api, reloadKey, userId]);
+  // 团队看板只给有管理范围、或数据范围是“全部”的人。
+  const board = Boolean(context?.access?.board ?? status.me?.access?.board);
+  const pages = PAGES.filter(entry => entry.id !== 'board' || board);
+  const current = pages.some(entry => entry.id === page) ? page : 'mine';
+  const offline = status.state === 'offline';
+  const props = { status, run, workbench, api, context, directory, reloadKey };
+  const needsServer = (current === 'board' || current === 'projects') && !context;
+  return (
+    <>
+      <nav className="ww-row" role="tablist" aria-label="团队" style={{ gap: 6 }}>
+        {pages.map(entry => (
+          <button key={entry.id} type="button" role="tab" aria-selected={current === entry.id} className={current === entry.id ? 'ww-primary' : undefined}
+            onClick={() => setPage(entry.id)}>{entry.label}</button>
+        ))}
+      </nav>
+      {offline && (
+        <section className="ww-section">
+          <strong>{status.hidden ? '离线太久，团队内容先收起来了' : '暂时连不上企业服务端'}</strong>
+          <p className="ww-muted">{status.lastError?.message}。{status.hidden
+            ? `超过企业规定的 ${status.offlineDays} 天没连上，团队内容已从本机撤掉，连上后会自动恢复。`
+            : `上次同步在 ${ago(status.lastOkAt)}，团队资料照常能用；“我的工作”显示上次同步的缓存，不能改。超过 ${status.offlineDays} 天还连不上会先收起来。`}</p>
+        </section>
+      )}
+      {current === 'mine' && <MyWorkPage {...props} />}
+      {needsServer && <section className="ww-section"><strong>{problem ? '读不到团队数据' : '正在读取…'}</strong>{problem && <p className="ww-muted">{problem}。{current === 'board' ? '团队看板' : '项目'}要连上企业服务端才能看，连上后点页头的“刷新”。</p>}</section>}
+      {current === 'board' && !needsServer && <BoardPage {...props} />}
+      {current === 'projects' && !needsServer && <ProjectsPage {...props} />}
+      {current === 'library' && <LibraryView status={status} run={run} workbench={workbench} />}
+    </>
+  );
+}
+
 // ---------- 页签 ----------
 
 export function apply(ctx) {
@@ -340,9 +362,18 @@ export function apply(ctx) {
       const [problem, setProblem] = useState(null);
       const [attempt, setAttempt] = useState(0);
       const [status, setStatus] = useState(null);
+      const [reloadKey, setReloadKey] = useState(0);
       const alive = useRef(true);
       const remoteRef = useRef(null);
       remoteRef.current = remote;
+      // 读数据直接调 Host，不占工作台的统一忙碌状态；写操作走 run。
+      const api = useMemo(() => ({
+        work: (op, extra = {}, signal) => {
+          const current = remoteRef.current;
+          if (!current) return Promise.reject(new Error('还没连上鲸翼企业版，请稍等或点“重新连接”'));
+          return call(current, { action: 'work', op, ...extra }, signal);
+        },
+      }), []);
 
       // 连上 Host 的 manage 方法；写法照鲸翼的保存状态模板。
       useEffect(() => {
@@ -402,6 +433,7 @@ export function apply(ctx) {
       useEffect(() => workbench.onRefresh(() => run(async (current, signal) => {
         const value = await call(current, { action: 'sync' }, signal);
         setStatus(value);
+        setReloadKey(key => key + 1);
         if (value.lastError) workbench.notify(`同步没成功：${value.lastError.message}`, { kind: 'error', action: { label: '重试', run: () => workbench.run(s => call(current, { action: 'sync' }, s).then(setStatus)) } });
         else if (value.state === 'connected') workbench.notify('团队内容已是最新', { kind: 'success' });
       })), [workbench, run]);
@@ -428,7 +460,7 @@ export function apply(ctx) {
             </section>
           ) : !status ? null : status.state === 'disconnected' || status.state === 'expired'
             ? <ConnectView status={status} run={run} workbench={workbench} />
-            : <ConnectedView status={status} run={run} workbench={workbench} />}
+            : <TeamPages status={status} run={run} workbench={workbench} api={api} reloadKey={reloadKey} />}
         </div>
       );
     }
