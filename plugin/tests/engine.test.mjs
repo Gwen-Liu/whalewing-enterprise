@@ -8,6 +8,7 @@ import path from 'node:path';
 import { createApp } from '../../server/src/app.js';
 import { Engine } from '../src/engine.js';
 import { inspectAddress } from '../src/net.js';
+import { PROTOCOL_VERSION } from '@whalewing-enterprise/shared';
 
 const SETUP_CODE = '1111-2222';
 
@@ -262,9 +263,12 @@ test('加密规则：外网地址只能 https；内网地址可以 http 并标�
 test('服务端接口版本对不上时说清楚该升级哪一边', async t => {
   const dir = await mkdtemp(path.join(os.tmpdir(), 'wwe-proto-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
-  const fetchImpl = async () => new Response(JSON.stringify({ product: 'whalewing-enterprise', protocol: 2, serverVersion: '0.3.0-rc.1.1', setupRequired: false, orgName: '新公司' }), { status: 200 });
-  const engine = new Engine({ baseDir: dir, credentials: fakeCredentials(), credentialKey: 'k', personal: fakePersonal(), fetchImpl, log: () => {} });
-  await assert.rejects(engine.probe({ address: 'http://127.0.0.1:9' }), error => error.code === 'PROTOCOL' && /升级/.test(error.message));
+  const hello = protocol => async () => new Response(JSON.stringify({ product: 'whalewing-enterprise', protocol, serverVersion: '9.9.9', setupRequired: false, orgName: '新公司' }), { status: 200 });
+  const engine = new Engine({ baseDir: dir, credentials: fakeCredentials(), credentialKey: 'k', personal: fakePersonal(), fetchImpl: hello(PROTOCOL_VERSION + 1), log: () => {} });
+  await assert.rejects(engine.probe({ address: 'http://127.0.0.1:9' }), error => error.code === 'PROTOCOL' && /把鲸翼企业版插件升级/.test(error.message));
+  // 第一版的服务端（接口版本 1）没有事项和新的角色：提示管理员先升级服务端。
+  const old = new Engine({ baseDir: dir, credentials: fakeCredentials(), credentialKey: 'k', personal: fakePersonal(), fetchImpl: hello(1), log: () => {} });
+  await assert.rejects(old.probe({ address: 'http://127.0.0.1:9' }), error => error.code === 'PROTOCOL' && /服务端版本太旧/.test(error.message));
   const notOurs = new Engine({ baseDir: dir, credentials: fakeCredentials(), credentialKey: 'k', personal: fakePersonal(), log: () => {},
     fetchImpl: async () => new Response('<html>别的网站</html>', { status: 200 }) });
   await assert.rejects(notOurs.probe({ address: 'http://127.0.0.1:9' }), error => error.code === 'SERVER');
@@ -276,7 +280,7 @@ test('服务端发来路径不对的清单时什么都不写到缓存外面', as
   const me = { user: { id: 1, username: 'a', displayName: 'a', role: 'member', departmentId: null, status: 'active' }, department: null, org: { name: '坏公司', offlineDays: 7 } };
   const hash = 'a'.repeat(64);
   const fetchImpl = async url => {
-    if (url.endsWith('/hello')) return new Response(JSON.stringify({ product: 'whalewing-enterprise', protocol: 1, serverVersion: 'x', setupRequired: false, orgName: '坏公司' }));
+    if (url.endsWith('/hello')) return new Response(JSON.stringify({ product: 'whalewing-enterprise', protocol: PROTOCOL_VERSION, serverVersion: 'x', setupRequired: false, orgName: '坏公司' }));
     if (url.endsWith('/auth/login')) return new Response(JSON.stringify({ token: 'x'.repeat(40), expiresAt: new Date().toISOString(), me }));
     if (url.endsWith('/sync')) return new Response(JSON.stringify({ revision: 1, generatedAt: '', me, items: [{ kind: 'skill', slug: 'evil', title: 'x', description: '', revision: 1, canMaintain: false, files: [{ path: '../../escape.txt', hash, size: 1 }] }] }));
     return new Response('x');

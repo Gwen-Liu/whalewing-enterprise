@@ -11,7 +11,7 @@ test('初始化：没初始化时只能用初始化码建第一个管理员，�
   const hello = await s.request('GET', '/api/v1/hello');
   assert.equal(hello.json.setupRequired, true);
   assert.equal(hello.json.orgName, null);
-  assert.equal(hello.json.protocol, 1);
+  assert.equal(hello.json.protocol, 2);
   assert.ok(existsSync(path.join(s.dataDir, 'setup-code.txt')));
   assert.equal((await s.request('POST', '/api/v1/auth/login', { body: { username: 'x', password: 'y', client: 'plugin' } })).json.error.code, 'SETUP_REQUIRED');
 
@@ -25,7 +25,8 @@ test('初始化：没初始化时只能用初始化码建第一个管理员，�
 
   const ok = await s.request('POST', '/api/v1/setup', { body: { setupCode: SETUP_CODE, orgName: '鲸翼测试公司', ...OWNER } });
   assert.equal(ok.status, 200);
-  assert.equal(ok.json.me.user.role, 'owner');
+  assert.equal(ok.json.me.user.role, 'admin', '第一个账号就是普通的管理员，没有“所有者”');
+  assert.equal(ok.json.me.access.admin, true);
   const cookie = cookieOf(ok);
   assert.match(ok.headers['set-cookie'], /HttpOnly/i);
   assert.match(ok.headers['set-cookie'], /SameSite=Strict/i);
@@ -68,8 +69,8 @@ test('停用和改角色马上生效：已登录的令牌立刻作废', async t 
   assert.equal(after.status, 401);
   assert.equal((await s.request('POST', '/api/v1/auth/login', { body: { username: 'zhang', password: 'member-pass-1', client: 'plugin' } })).json.error.code, 'ACCOUNT_DISABLED');
 
-  const owner = s.org.users().find(user => user.role === 'owner');
-  assert.equal((await s.request('PATCH', `/api/v1/admin/users/${owner.id}`, { cookie: s.adminCookie, body: { status: 'disabled' } })).json.error.code, 'FORBIDDEN');
+  const first = s.org.users().find(user => user.role === 'admin');
+  assert.equal((await s.request('PATCH', `/api/v1/admin/users/${first.id}`, { cookie: s.adminCookie, body: { status: 'disabled' } })).json.error.code, 'FORBIDDEN', '不能停用自己');
 });
 
 test('邀请：带部门和人数上限，用完、过期、撤销后都不能再用', async t => {
@@ -100,11 +101,14 @@ test('邀请：带部门和人数上限，用完、过期、撤销后都不能�
   assert.match(page.headers['content-type'], /text\/html/);
   assert.match(page.headers['content-security-policy'], /default-src 'self'/);
 
-  // 管理员不能邀请管理员，只有所有者能。
+  // 管理员之间平级：后任命的管理员也能邀请管理员。
   const admin = await member(s, { username: 'admin2', role: 'admin', password: 'admin-pass-1' });
   const adminCookie = cookieOf(await s.request('POST', '/api/v1/auth/login', { body: { username: 'admin2', password: 'admin-pass-1', client: 'admin' } }));
   assert.ok(admin.user.id);
-  assert.equal((await s.request('POST', '/api/v1/admin/invites', { cookie: adminCookie, body: { departmentId: null, role: 'admin' } })).json.error.code, 'FORBIDDEN');
+  const adminInvite = await s.request('POST', '/api/v1/admin/invites', { cookie: adminCookie, body: { departmentId: null, role: 'admin' } });
+  assert.equal(adminInvite.json.invite.role, 'admin');
+  assert.equal((await s.request('GET', `/api/v1/invites/${adminInvite.json.invite.code}`)).json.roleName, '管理员');
+  assert.equal(info.json.roleName, '成员', '成员的邀请写明加入后挂的角色');
 });
 
 test('邀请页会转义企业名称，防止被插入网页代码', async t => {

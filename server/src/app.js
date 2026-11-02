@@ -3,10 +3,12 @@ import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import { readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
-import { API_PREFIX, ApiError, apiError, KINDS, schemas } from '@whalewing-enterprise/shared';
+import { API_PREFIX, ApiError, apiError, CATEGORIES, KINDS, schemas } from '@whalewing-enterprise/shared';
 import { openDatabase } from './db.js';
 import { Audit } from './audit.js';
 import { Org, SESSION_TTL } from './org.js';
+import { Roles } from './roles.js';
+import { Work } from './work.js';
 import { Content } from './content.js';
 import { safeEqual, setupCode as makeSetupCode, sha256 } from './secrets.js';
 import { joinPage, missingAdminPage } from './pages.js';
@@ -50,6 +52,9 @@ export async function createApp(options) {
   const db = openDatabase(dataDir, { log });
   const audit = new Audit(db);
   const org = new Org(db, { version, audit });
+  const roles = new Roles(db, { org, audit });
+  org.roles = roles;
+  const work = new Work(db, { org, roles, audit, clock: options.clock });
   const content = new Content(db, { contentDir: path.join(dataDir, 'content'), tmpDir: path.join(dataDir, 'tmp'), org, audit });
   const setupFile = path.join(dataDir, 'setup-code.txt');
   let setupCode = null;
@@ -61,7 +66,7 @@ export async function createApp(options) {
 
   // 每个请求的日志是 info 级别，默认只开 warn，不刷屏。
   const app = Fastify({ logger, trustProxy, bodyLimit: 256 * 1024, return503OnClosing: true });
-  app.decorate('enterprise', { db, org, content, audit });
+  app.decorate('enterprise', { db, org, roles, work, content, audit });
   await app.register(cookie);
   await app.register(rateLimit, {
     global: true, max: 600, timeWindow: '1 minute',
@@ -135,10 +140,10 @@ export async function createApp(options) {
     const input = parse(schemas.setupInput, request.body);
     if (org.isSetUp || !setupCode) throw apiError('SETUP_DONE');
     if (!safeEqual(input.setupCode.replace(/\s/g, ''), setupCode)) throw apiError('SETUP_CODE');
-    const owner = await org.setup(input);
+    const first = await org.setup(input);
     setupCode = null;
     rmSync(setupFile, { force: true });
-    const session = org.createSession(owner.id, 'admin');
+    const session = org.createSession(first.id, 'admin');
     setAdminCookie(request, reply, session.token);
     return { me: session.me, expiresAt: session.expiresAt };
   });
@@ -211,15 +216,83 @@ export async function createApp(options) {
     return { ok: true, revision: content.revision() };
   });
 
-  // ---------- 管理 ----------
+  // ---------- 企业管理：事项和项目（员工端和管理端都用） ----------
 
-  const admin = `${API_PREFIX}/admin`;
-  const asAdmin = request => { requireSetUp(); return adminSession(request).user; };
   const id = request => {
     const value = Number(request.params.id);
     if (!Number.isInteger(value) || value <= 0) throw apiError('NOT_FOUND');
     return value;
   };
+  const w = `${API_PREFIX}/work`;
+  const accessOf = request => { requireSetUp(); const session = anySession(request); return { access: roles.access(session.user), kind: session.kind }; };
+  // 经谁改的只是记录用：管理端网页一律算本人操作；员工端经小鲸或专家调工具时带 via。
+  const viaOf = (kind, body) => kind === 'admin' || !body?.via ? { kind: 'ui' } : body.via;
+  const positive = value => { const number = Number(value); return Number.isInteger(number) && number > 0 ? number : undefined; };
+  const filtersOf = query => ({
+    assigneeId: positive(query.assigneeId), projectId: positive(query.projectId), departmentId: positive(query.departmentId),
+    typeId: positive(query.typeId), waitingOn: positive(query.waitingOn),
+    category: ['open', ...CATEGORIES].includes(query.category) ? query.category : undefined,
+    overdue: query.overdue === '1' || query.overdue === 'true',
+    q: typeof query.q === 'string' && query.q.trim() ? query.q.trim().slice(0, 100) : undefined,
+    limit: positive(query.limit), offset: Number(query.offset) > 0 ? Math.floor(Number(query.offset)) : 0,
+  });
+
+  app.get(`${w}/context`, async request => {
+    const { access } = accessOf(request);
+    const settings = org.settings();
+    return {
+      ...work.calendar(), workVisibility: settings.workVisibility, timeZone: settings.timeZone,
+      access: access.describe(departmentId => org.department(departmentId)?.name),
+      types: work.types(),
+    };
+  });
+  // 选负责人、协作人用的名单：启用的人和部门树（只有名字和部门）。
+  app.get(`${w}/directory`, async request => {
+    const { access } = accessOf(request);
+    return {
+      users: org.users().filter(user => user.status === 'active').map(user => ({ id: user.id, displayName: user.displayName, departmentId: user.departmentId, inScope: access.inScope(user.id) })),
+      departments: org.departments().map(department => ({ id: department.id, name: department.name, parentId: department.parentId })),
+    };
+  });
+  app.get(`${w}/mine`, async request => work.mine(accessOf(request).access));
+  app.get(`${w}/items`, async request => work.search(accessOf(request).access, filtersOf(request.query)));
+  app.get(`${w}/items/:id`, async request => work.get(accessOf(request).access, id(request)));
+  app.post(`${w}/items`, async request => {
+    const { access, kind } = accessOf(request);
+    const input = parse(schemas.workItemCreate, request.body);
+    return work.create(access, input, { via: viaOf(kind, input) });
+  });
+  app.patch(`${w}/items/:id`, async request => {
+    const { access, kind } = accessOf(request);
+    const input = parse(schemas.workItemUpdate, request.body);
+    return work.update(access, id(request), input, { via: viaOf(kind, input) });
+  });
+  app.post(`${w}/items/:id/comments`, async request => {
+    const { access, kind } = accessOf(request);
+    const input = parse(schemas.workComment, request.body);
+    return work.comment(access, id(request), input.text, { via: viaOf(kind, input) });
+  });
+  app.delete(`${w}/items/:id`, async request => { work.remove(accessOf(request).access, id(request)); return { ok: true }; });
+  app.get(`${w}/board`, async request => {
+    const { access, kind } = accessOf(request);
+    const query = request.query;
+    // 管理端的全局看板连自己一起算；员工端的看板不含自己（自己的在“我的工作”里）。
+    return work.board(access, { departmentId: positive(query.departmentId) ?? null, projectId: positive(query.projectId) ?? null, includeSelf: kind === 'admin' });
+  });
+  app.get(`${w}/export`, async (request, reply) => {
+    const csv = work.exportCsv(accessOf(request).access, filtersOf(request.query));
+    reply.header('content-disposition', `attachment; filename="work-items-${work.calendar().today}.csv"`);
+    return reply.type('text/csv; charset=utf-8').send(csv);
+  });
+  app.get(`${w}/projects`, async request => ({ projects: work.projects(accessOf(request).access) }));
+  app.post(`${w}/projects`, async request => work.createProject(accessOf(request).access, parse(schemas.projectInput, request.body)));
+  app.patch(`${w}/projects/:id`, async request => work.updateProject(accessOf(request).access, id(request), parse(schemas.projectUpdate, request.body)));
+  app.delete(`${w}/projects/:id`, async request => { work.deleteProject(accessOf(request).access, id(request)); return { ok: true }; });
+
+  // ---------- 管理 ----------
+
+  const admin = `${API_PREFIX}/admin`;
+  const asAdmin = request => { requireSetUp(); return adminSession(request).user; };
 
   app.get(`${admin}/overview`, async request => {
     asAdmin(request);
@@ -230,6 +303,8 @@ export async function createApp(options) {
       members: { total: users.length, active: users.filter(u => u.status === 'active').length, recentlySeen: users.filter(u => u.lastSeenAt && u.lastSeenAt > weekAgo).length },
       departments: org.departments().length,
       content: content.overview(),
+      work: work.overview(),
+      roles: roles.list().filter(role => role.notManaging > 0).map(role => ({ id: role.id, name: role.name, notManaging: role.notManaging })),
       recent: audit.list({ limit: 8 }),
       serverVersion: version,
     };
@@ -243,7 +318,22 @@ export async function createApp(options) {
     return { ok: true };
   });
 
-  app.get(`${admin}/departments`, async request => { asAdmin(request); return { departments: org.departments() }; });
+  app.get(`${admin}/departments`, async request => { asAdmin(request); return { departments: org.departmentsWithManagers() }; });
+  app.put(`${admin}/departments/:id/managers`, async request => ({ managerIds: roles.setManagers(asAdmin(request), id(request), parse(schemas.managersInput, request.body).userIds) }));
+
+  app.get(`${admin}/roles`, async request => { asAdmin(request); return { roles: roles.list() }; });
+  app.post(`${admin}/roles`, async request => roles.create(asAdmin(request), parse(schemas.roleInput, request.body)));
+  app.patch(`${admin}/roles/:id`, async request => roles.update(asAdmin(request), id(request), parse(schemas.roleUpdate, request.body)));
+  app.delete(`${admin}/roles/:id`, async request => { roles.remove(asAdmin(request), id(request)); return { ok: true }; });
+
+  app.get(`${admin}/work-types`, async request => { asAdmin(request); return { types: work.types({ includeArchived: true }) }; });
+  app.post(`${admin}/work-types`, async request => work.createType(asAdmin(request), parse(schemas.workTypeInput, request.body)));
+  app.patch(`${admin}/work-types/:id`, async request => work.updateType(asAdmin(request), id(request), parse(schemas.workTypeUpdate, request.body)));
+  app.delete(`${admin}/work-types/:id`, async request => { work.deleteType(asAdmin(request), id(request)); return { ok: true }; });
+
+  app.get(`${admin}/work/trash`, async request => { asAdmin(request); return { items: work.trash() }; });
+  app.post(`${admin}/work/items/:id/restore`, async request => work.restore(roles.access(asAdmin(request)), id(request)));
+  app.post(`${admin}/work/import`, { bodyLimit: 8 * 1024 * 1024 }, async request => work.importRows(roles.access(asAdmin(request)), parse(schemas.importInput, request.body)));
   app.post(`${admin}/departments`, async request => org.createDepartment(asAdmin(request), parse(schemas.departmentInput, request.body)));
   app.patch(`${admin}/departments/:id`, async request => org.updateDepartment(asAdmin(request), id(request), parse(schemas.departmentUpdate, request.body)));
   app.delete(`${admin}/departments/:id`, async request => { org.deleteDepartment(asAdmin(request), id(request)); return { ok: true }; });
@@ -315,5 +405,5 @@ export async function createApp(options) {
   timer.unref();
   app.addHook('onClose', async () => { clearInterval(timer); db.close(); });
 
-  return { app, db, org, content, audit, notes, get setupCode() { return setupCode; } };
+  return { app, db, org, roles, work, content, audit, notes, get setupCode() { return setupCode; } };
 }

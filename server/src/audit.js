@@ -1,4 +1,5 @@
-// 管理操作记录：谁在什么时候改了成员、权限和团队内容。只记管理动作，不记员工的会话。
+// 管理操作记录：谁在什么时候改了成员、角色、权限、团队内容，以及事项的截止日期、优先级、负责人和删除。
+// 只记管理动作，不记员工的会话。actor 为空表示在服务器上用命令行做的（系统之外的操作）。
 export const ACTION_LABELS = Object.freeze({
   'setup': '初始化企业',
   'settings.update': '修改企业设置',
@@ -17,6 +18,23 @@ export const ACTION_LABELS = Object.freeze({
   'file.write': '保存团队内容文件',
   'file.delete': '删除团队内容文件',
   'skill.upload': '上传技能压缩包',
+  'role.create': '新建角色',
+  'role.update': '修改角色',
+  'role.delete': '删除角色',
+  'department.managers': '设置部门负责人',
+  'worktype.create': '新建事项类型',
+  'worktype.update': '修改事项类型',
+  'worktype.delete': '删除事项类型',
+  'project.create': '新建项目',
+  'project.update': '修改项目',
+  'project.delete': '删除项目',
+  'work.assign': '派事项或换负责人',
+  'work.adjust': '调整事项',
+  'work.delete': '删除事项（进回收站）',
+  'work.restore': '从回收站恢复事项',
+  'work.purge': '彻底删除回收站里的事项',
+  'work.import': '从表格导入事项',
+  'work.export': '导出事项',
 });
 
 const SECRET_KEYS = /password|token|code/i;

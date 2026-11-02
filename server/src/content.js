@@ -98,7 +98,7 @@ export class Content {
   /** 这个人能不能看、能不能改这一项。管理员什么都能；维护人自动能看。可见范围选了部门时，包含它的下级部门。 */
   can(user, item, mode) {
     if (!user || user.status !== 'active') return false;
-    if (user.role === 'owner' || user.role === 'admin') return true;
+    if (user.role === 'admin') return true;
     const departments = new Set(this.org.ancestors(user.departmentId).map(department => department.id));
     const rows = this.db.prepare('SELECT mode, subject_type AS type, subject_id AS id FROM access WHERE item_id = ?').all(item.id);
     return rows.some(row => (mode === 'view' || row.mode === 'maintain')

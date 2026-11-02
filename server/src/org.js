@@ -32,6 +32,8 @@ export class Org {
       publicUrl: this.meta('public_url'),
       offlineDays: Number(this.meta('offline_days') ?? DEFAULTS.offlineDays),
       inviteDays: Number(this.meta('invite_days') ?? DEFAULTS.inviteDays),
+      workVisibility: this.meta('work_visibility') ?? DEFAULTS.workVisibility,
+      timeZone: this.meta('time_zone') ?? DEFAULTS.timeZone,
     };
   }
 
@@ -41,6 +43,8 @@ export class Org {
       if (input.publicUrl !== undefined) this.setMeta('public_url', input.publicUrl ? input.publicUrl.replace(/\/+$/, '') : null);
       if (input.offlineDays !== undefined) this.setMeta('offline_days', input.offlineDays);
       if (input.inviteDays !== undefined) this.setMeta('invite_days', input.inviteDays);
+      if (input.workVisibility !== undefined) this.setMeta('work_visibility', input.workVisibility);
+      if (input.timeZone !== undefined) this.setMeta('time_zone', input.timeZone);
       this.audit.record(actor, 'settings.update', '企业设置', input);
     });
     return this.settings();
@@ -58,7 +62,8 @@ export class Org {
       this.setMeta('org_name', input.orgName);
       if (input.publicUrl) this.setMeta('public_url', input.publicUrl.replace(/\/+$/, ''));
       this.setMeta('created_at', now());
-      const user = this.insertUser({ username: input.username, displayName: input.displayName, hash, role: 'owner', departmentId: null });
+      // 初始化时建的第一个账号就是一个普通的管理员；管理员之间平级。
+      const user = this.insertUser({ username: input.username, displayName: input.displayName, hash, role: 'admin', roleId: null, departmentId: null });
       this.audit.record(user, 'setup', input.orgName, { username: input.username });
       return user;
     });
@@ -86,6 +91,12 @@ export class Org {
     return chain;
   }
   departmentPath(id) { return this.ancestors(id).reverse().map(item => item.name); }
+
+  /** 管理端用的部门列表：每个部门带上负责人。 */
+  departmentsWithManagers() {
+    const managers = this.roles.allManagers();
+    return this.departments().map(department => ({ ...department, managerIds: managers.get(department.id) ?? [] }));
+  }
 
   createDepartment(actor, { name, parentId }) {
     return transaction(this.db, () => {
@@ -129,24 +140,24 @@ export class Org {
 
   // ---------- 账号 ----------
 
-  insertUser({ username, displayName, hash, role, departmentId }) {
+  insertUser({ username, displayName, hash, role, roleId, departmentId }) {
     if (this.db.prepare('SELECT 1 FROM users WHERE username = ?').get(username)) throw apiError('EXISTS', `登录名“${username}”已经有人用了`);
     if (departmentId && !this.department(departmentId)) throw apiError('NOT_FOUND', '部门不存在');
     const at = now();
     const { lastInsertRowid } = this.db.prepare(
-      'INSERT INTO users (username, display_name, password_hash, role, department_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, \'active\', ?, ?)',
-    ).run(username, displayName, hash, role, departmentId ?? null, at, at);
+      'INSERT INTO users (username, display_name, password_hash, role, role_id, department_id, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, \'active\', ?, ?)',
+    ).run(username, displayName, hash, role, role === 'admin' ? null : roleId ?? null, departmentId ?? null, at, at);
     return this.user(Number(lastInsertRowid));
   }
 
   user(id) {
-    const row = this.db.prepare(`SELECT id, username, display_name AS displayName, role, department_id AS departmentId, status,
+    const row = this.db.prepare(`SELECT id, username, display_name AS displayName, role, role_id AS roleId, department_id AS departmentId, status,
       created_at AS createdAt, last_seen_at AS lastSeenAt FROM users WHERE id = ?`).get(id);
     return row ? { ...row } : null;
   }
 
   users() {
-    return this.db.prepare(`SELECT id, username, display_name AS displayName, role, department_id AS departmentId, status,
+    return this.db.prepare(`SELECT id, username, display_name AS displayName, role, role_id AS roleId, department_id AS departmentId, status,
       created_at AS createdAt, last_seen_at AS lastSeenAt FROM users ORDER BY id`).all().map(row => ({ ...row }));
   }
 
@@ -160,39 +171,55 @@ export class Org {
     return {
       user: this.publicUser(user),
       department: department ? { id: department.id, name: department.name, path: this.departmentPath(department.id) } : null,
-      org: { name: settings.orgName ?? '', offlineDays: settings.offlineDays },
+      org: { name: settings.orgName ?? '', offlineDays: settings.offlineDays, workVisibility: settings.workVisibility, timeZone: settings.timeZone },
+      access: this.roles.access(user).describe(id => this.department(id)?.name),
     };
   }
+
+  activeAdmins() { return this.db.prepare("SELECT COUNT(*) AS n FROM users WHERE role = 'admin' AND status = 'active'").get().n; }
 
   async createUser(actor, input) {
     const hash = await hashPassword(input.password);
     return transaction(this.db, () => {
-      const user = this.insertUser({ ...input, hash });
-      this.audit.record(actor, 'user.create', input.username, { role: input.role, departmentId: input.departmentId });
+      const roleId = input.role === 'admin' ? null : this.roles.resolveMemberRole(input.roleId).id;
+      const user = this.insertUser({ ...input, roleId, hash });
+      this.audit.record(actor, 'user.create', input.username, { role: input.role, roleName: input.role === 'admin' ? '管理员' : this.roles.role(roleId).name, departmentId: input.departmentId });
       return user;
     });
   }
 
+  /**
+   * 管理员之间平级：都能任命、停用别的管理员。最后一个启用的管理员不能被停用或降成成员；
+   * 自己不能停用自己、不能把自己降成成员（免得把自己关在外面，请另一位管理员来做）。
+   */
   updateUser(actor, id, input) {
     return transaction(this.db, () => {
       const target = this.user(id);
       if (!target) throw apiError('NOT_FOUND', '成员不存在');
-      if (target.role === 'owner' && (input.role !== undefined || input.status === 'disabled')) throw apiError('FORBIDDEN', '所有者不能被停用或改角色');
-      const touchesAdmin = target.role === 'admin' || input.role === 'admin';
-      if (touchesAdmin && (input.role !== undefined || input.status !== undefined) && actor.role !== 'owner') throw apiError('FORBIDDEN', '只有所有者能设置或停用管理员');
-      if (target.id === actor.id && input.status === 'disabled') throw apiError('FORBIDDEN', '不能停用自己');
+      const demoting = target.role === 'admin' && input.role === 'member';
+      const disabling = target.status === 'active' && input.status === 'disabled';
+      if (target.id === actor.id && disabling) throw apiError('FORBIDDEN', '不能停用自己。需要的话请另一位管理员来做');
+      if (target.id === actor.id && demoting) throw apiError('FORBIDDEN', '不能把自己改成成员。需要的话请另一位管理员来做');
+      if (target.role === 'admin' && target.status === 'active' && (demoting || disabling) && this.activeAdmins() <= 1) {
+        throw apiError('FORBIDDEN', '这是最后一个启用的管理员，不能停用或改成成员。先任命另一位管理员');
+      }
       if (input.departmentId && !this.department(input.departmentId)) throw apiError('NOT_FOUND', '部门不存在');
+      const role = input.role ?? target.role;
+      let roleId = target.roleId;
+      if (role === 'admin') roleId = null;
+      else if (input.roleId !== undefined || target.role === 'admin' || !roleId) roleId = this.roles.resolveMemberRole(input.roleId ?? null).id;
       const fields = [], values = [];
       if (input.displayName !== undefined) { fields.push('display_name = ?'); values.push(input.displayName); }
       if (input.role !== undefined) { fields.push('role = ?'); values.push(input.role); }
+      if (roleId !== target.roleId) { fields.push('role_id = ?'); values.push(roleId); }
       if (input.departmentId !== undefined) { fields.push('department_id = ?'); values.push(input.departmentId); }
       if (input.status !== undefined) { fields.push('status = ?'); values.push(input.status); }
       if (!fields.length) return target;
       fields.push('updated_at = ?'); values.push(now());
       this.db.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values, id);
-      // 停用和改角色马上生效：作废这个人所有已登录的地方。
-      if (input.status === 'disabled' || input.role !== undefined) this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
-      this.audit.record(actor, 'user.update', target.username, input);
+      // 停用和改身份马上生效：作废这个人所有已登录的地方。只换角色不用重新登录，权限每次请求现算。
+      if (input.status === 'disabled' || (input.role !== undefined && input.role !== target.role)) this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
+      this.audit.record(actor, 'user.update', target.username, { ...input, ...(roleId !== target.roleId && roleId ? { roleName: this.roles.role(roleId).name } : {}) });
       return this.user(id);
     });
   }
@@ -200,7 +227,7 @@ export class Org {
   async resetPassword(actor, id, password) {
     const target = this.user(id);
     if (!target) throw apiError('NOT_FOUND', '成员不存在');
-    if (target.role !== 'member' && actor.role !== 'owner' && actor.id !== id) throw apiError('FORBIDDEN', '只有所有者能重置管理员的密码');
+    // 管理员之间平级，谁都能重置别人的密码（包括别的管理员），都记进操作记录。
     const hash = await hashPassword(password);
     transaction(this.db, () => {
       this.db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(hash, now(), id);
@@ -297,21 +324,21 @@ export class Org {
   // ---------- 邀请 ----------
 
   createInvite(actor, input) {
-    if (input.role === 'admin' && actor.role !== 'owner') throw apiError('FORBIDDEN', '只有所有者能邀请管理员');
     if (input.departmentId && !this.department(input.departmentId)) throw apiError('NOT_FOUND', '部门不存在');
     const code = randomToken(24);
     const days = input.days ?? this.settings().inviteDays;
     const expiresAt = addMs(days * DAY);
     return transaction(this.db, () => {
-      const { lastInsertRowid } = this.db.prepare(`INSERT INTO invites (code_hash, code_hint, department_id, role, max_uses, expires_at, created_by, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(sha256(code), code.slice(0, 6), input.departmentId ?? null, input.role, input.maxUses, expiresAt, actor.id, now());
-      this.audit.record(actor, 'invite.create', `邀请 ${code.slice(0, 6)}…`, { departmentId: input.departmentId, role: input.role, maxUses: input.maxUses, days });
+      const roleId = input.role === 'admin' ? null : this.roles.resolveMemberRole(input.roleId).id;
+      const { lastInsertRowid } = this.db.prepare(`INSERT INTO invites (code_hash, code_hint, department_id, role, role_id, max_uses, expires_at, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(sha256(code), code.slice(0, 6), input.departmentId ?? null, input.role, roleId, input.maxUses, expiresAt, actor.id, now());
+      this.audit.record(actor, 'invite.create', `邀请 ${code.slice(0, 6)}…`, { departmentId: input.departmentId, role: input.role, roleName: roleId ? this.roles.role(roleId).name : '管理员', maxUses: input.maxUses, days });
       return { ...this.invite(Number(lastInsertRowid)), code };
     });
   }
 
   invite(id) {
-    const row = this.db.prepare(`SELECT id, code_hint AS hint, department_id AS departmentId, role, max_uses AS maxUses, uses,
+    const row = this.db.prepare(`SELECT id, code_hint AS hint, department_id AS departmentId, role, role_id AS roleId, max_uses AS maxUses, uses,
       expires_at AS expiresAt, created_at AS createdAt, revoked_at AS revokedAt FROM invites WHERE id = ?`).get(id);
     return row ? { ...row, active: !row.revokedAt && row.uses < row.maxUses && row.expiresAt > now() } : null;
   }
@@ -340,7 +367,8 @@ export class Org {
     if (!this.isSetUp) throw apiError('SETUP_REQUIRED');
     const invite = this.findInvite(code);
     const department = invite.departmentId ? this.departmentPath(invite.departmentId).join(' / ') : null;
-    return { orgName: this.meta('org_name'), department, role: invite.role, expiresAt: invite.expiresAt };
+    const roleName = invite.role === 'admin' ? '管理员' : this.roles.role(invite.roleId)?.name ?? this.roles.presetMember()?.name ?? null;
+    return { orgName: this.meta('org_name'), department, role: invite.role, roleName, expiresAt: invite.expiresAt };
   }
 
   async join(input) {
@@ -349,7 +377,9 @@ export class Org {
     const hash = await hashPassword(input.password);
     return transaction(this.db, () => {
       const invite = this.findInvite(input.code);
-      const user = this.insertUser({ username: input.username, displayName: input.displayName, hash, role: invite.role, departmentId: invite.departmentId });
+      // 邀请里的角色被删掉了就用预置的“成员”，不让邀请链接因此失效。
+      const roleId = invite.role === 'admin' ? null : (this.roles.role(invite.roleId) ?? this.roles.resolveMemberRole(null)).id;
+      const user = this.insertUser({ username: input.username, displayName: input.displayName, hash, role: invite.role, roleId, departmentId: invite.departmentId });
       this.db.prepare('UPDATE invites SET uses = uses + 1 WHERE id = ?').run(invite.id);
       this.audit.record(user, 'invite.use', `邀请 ${invite.hint}…`, { username: input.username });
       return this.createSession(user.id, 'plugin');
