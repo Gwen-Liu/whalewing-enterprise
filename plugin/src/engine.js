@@ -242,7 +242,16 @@ export class Engine {
   }
 
   /** 登录失效（过期、被停用、令牌没了）：团队内容撤掉，留下服务器地址方便重新登录。 */
-  async expire(error) {
+  /**
+   * 同步和几个事项请求可能同时发现登录失效（比如账号刚被停用）：只撤一次。
+   * 几处同时删同一个缓存目录，在 Windows 上会报 EPERM。
+   */
+  expire(error) {
+    this.expiring ??= this.runExpire(error).finally(() => { this.expiring = null; });
+    return this.expiring;
+  }
+
+  async runExpire(error) {
     await this.credentials.deleteRecord(this.credentialKey);
     await this.purgeCache();
     this.state = { ...this.state, status: 'expired', lastError: { code: error.code, message: error.message }, lastAttemptAt: new Date(this.now()).toISOString(), etag: null, items: [], workCache: null };
@@ -499,7 +508,7 @@ export class Engine {
       const response = await request(target, method, '/work' + url, { token, body, signal, raw, fetchImpl: this.net.fetchImpl });
       return raw ? response.buffer.toString('utf8') : response.json;
     } catch (error) {
-      if (!this.closed && AUTH_LOST.has(error.code)) await this.expire(error);
+      if (!this.closed && AUTH_LOST.has(error.code) && this.state?.status === 'connected') await this.expire(error);
       throw error;
     }
   }

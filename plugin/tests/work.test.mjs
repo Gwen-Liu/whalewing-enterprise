@@ -87,6 +87,20 @@ test('账号停用后查事项：撤掉团队内容和“我的工作”缓存',
   assert.equal(li.state.workCache, null);
 });
 
+test('账号停用后同步和几个事项请求同时发现登录失效：只撤一次，不会互相打架', async t => {
+  const w = await world(t);
+  const li = await w.login('li');
+  await li.work({ op: 'mine' });
+  let purges = 0;
+  const purge = li.purgeCache.bind(li);
+  li.purgeCache = async () => { purges += 1; await purge(); };
+  await w.admin('PATCH', `/users/${w.li.id}`, { status: 'disabled' });
+  const results = await Promise.allSettled([li.sync(), li.work({ op: 'mine' }), li.work({ op: 'context' }), li.work({ op: 'directory' })]);
+  assert.equal(li.status().state, 'expired');
+  assert.equal(purges, 1, '只撤一次');
+  for (const result of results.slice(1)) assert.ok(['AUTH_EXPIRED', 'ACCOUNT_DISABLED', 'AUTH_REQUIRED'].includes(result.reason?.code), `事项请求报的是登录失效，不是删文件出错：${result.reason?.message}`);
+});
+
 test('team_work：读不用确认；新建和修改先请员工同意，不同意什么都不改；经模型的记在动态里', async t => {
   const w = await world(t);
   const zhang = await w.login('zhang');

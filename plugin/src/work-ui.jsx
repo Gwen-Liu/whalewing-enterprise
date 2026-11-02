@@ -7,6 +7,7 @@ import { ago, COLORS, Field, Group, inputStyle } from './common.jsx';
 
 const { useCallback, useEffect, useMemo, useState } = React;
 const WEEKDAYS = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+const LINK = { all: 'unset', cursor: 'pointer', textDecoration: 'underline', textUnderlineOffset: 3, textDecorationStyle: 'dotted', textDecorationColor: 'currentColor' };
 const CATEGORY_COLORS = { todo: COLORS.muted, doing: COLORS.brand, waiting: COLORS.warn, done: COLORS.success, cancelled: COLORS.muted };
 
 const parts = text => { const d = new Date(text + 'T00:00:00Z'); return { m: d.getUTCMonth() + 1, d: d.getUTCDate(), w: d.getUTCDay() }; };
@@ -66,14 +67,15 @@ function Badge({ category, children }) {
 function StatCards({ cards, active, onPick }) {
   return (
     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(110px, 1fr))', gap: 8 }}>
-      {cards.map(card => (
-        <button key={card.key} type="button" className="ww-card" aria-pressed={active === card.key} disabled={!onPick}
-          onClick={() => onPick?.(active === card.key ? null : card.key)}
-          style={{ textAlign: 'left', display: 'grid', gap: 2, cursor: onPick ? 'pointer' : 'default', outline: active === card.key ? `2px solid ${COLORS.brand}` : undefined }}>
-          <span className="ww-muted" style={{ fontSize: 12 }}>{card.label}</span>
-          <strong style={{ fontSize: 22, color: card.tone && card.value ? card.tone : undefined }}>{card.value}</strong>
-        </button>
-      ))}
+      {cards.map(card => {
+        const body = <><span className="ww-muted" style={{ fontSize: 12 }}>{card.label}</span>
+          <strong style={{ fontSize: 22, color: card.tone && card.value ? card.tone : undefined }}>{card.value}</strong></>;
+        // 能点的（我的工作）是按钮，只筛选不跳页；看板上的只是数字，用普通卡片，不显示成按不动的按钮。
+        return onPick ? (
+          <button key={card.key} type="button" className="ww-card" aria-pressed={active === card.key} onClick={() => onPick(active === card.key ? null : card.key)}
+            style={{ textAlign: 'left', display: 'grid', gap: 2, cursor: 'pointer', outline: active === card.key ? `2px solid ${COLORS.brand}` : undefined }}>{body}</button>
+        ) : <div key={card.key} className="ww-card" style={{ display: 'grid', gap: 2 }}>{body}</div>;
+      })}
     </div>
   );
 }
@@ -523,7 +525,7 @@ function StatTable({ rows, onOpen, kind }) {
         <tbody>{rows.map(row => (
           <tr key={row.id}>
             <td style={{ ...cell, textAlign: 'left', whiteSpace: 'normal' }}>
-              <button type="button" style={{ all: 'unset', cursor: 'pointer', color: COLORS.brand }} onClick={() => onOpen(row)}>{row.name}</button>
+              <button type="button" style={LINK} onClick={() => onOpen(row)}>{row.name}</button>
               {kind === 'department' && row.managers?.length > 0 && <span className="ww-muted" style={{ fontSize: 12 }}> · 负责人 {row.managers.join('、')}</span>}
               {row.waitingFor?.length > 0 && <span className="ww-muted" style={{ fontSize: 12, color: COLORS.warn }}> · 在等 {row.waitingFor.join('、')}</span>}
             </td>
@@ -593,20 +595,20 @@ export function BoardPage({ workbench, api, run, status, context, directory, rel
         <div>
           <h2 style={{ margin: 0, fontSize: 18 }}>{data.title}<span className="ww-muted" style={{ fontWeight: 400, fontSize: 14 }}> · {data.people} 人</span></h2>
           {data.trail.length > 1 && <nav aria-label="部门层级" className="ww-muted" style={{ fontSize: 12 }}>{data.trail.map((entry, index) => (
-            <span key={entry.id}>{index > 0 && ' / '}{index < data.trail.length - 1 ? <button type="button" style={{ all: 'unset', cursor: 'pointer', color: COLORS.brand }} onClick={() => setDepartmentId(entry.id)}>{entry.name}</button> : entry.name}</span>
+            <span key={entry.id}>{index > 0 && ' / '}{index < data.trail.length - 1 ? <button type="button" style={LINK} onClick={() => setDepartmentId(entry.id)}>{entry.name}</button> : entry.name}</span>
           ))}</nav>}
         </div>
         <div className="ww-row" style={{ gap: 8 }}>
-          <label className="ww-row" style={{ gap: 4 }}><span className="ww-muted">范围</span>
-            <select value={departmentId ?? ''} onChange={event => setDepartmentId(event.target.value ? Number(event.target.value) : null)}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}><span className="ww-muted" aria-hidden="true">范围</span>
+            <select aria-label="范围" value={departmentId ?? ''} onChange={event => setDepartmentId(event.target.value ? Number(event.target.value) : null)}>
               <option value="">{context?.access?.admin || context?.access?.scope === 'all' ? '全企业' : '我管理的部门'}</option>
               {departments.map(entry => <option key={entry.id} value={entry.id}>{'　'.repeat(depth(entry.id))}{entry.name}</option>)}
-            </select></label>
-          <label className="ww-row" style={{ gap: 4 }}><span className="ww-muted">项目</span>
-            <select value={projectId ?? ''} onChange={event => setProjectId(event.target.value ? Number(event.target.value) : null)}>
+            </select></div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, whiteSpace: 'nowrap' }}><span className="ww-muted" aria-hidden="true">项目</span>
+            <select aria-label="项目" value={projectId ?? ''} onChange={event => setProjectId(event.target.value ? Number(event.target.value) : null)}>
               <option value="">全部</option>
               {data.options.projects.map(entry => <option key={entry.id} value={entry.id}>{entry.name}</option>)}
-            </select></label>
+            </select></div>
           <button type="button" className="ww-primary" onClick={analyse}>让小鲸分析</button>
           {can(context, 'export') && <workbench.ui.ActionMenu label="看板的更多操作" iconOnly><button type="button" onClick={exportCsv}>导出表格</button></workbench.ui.ActionMenu>}
         </div>
