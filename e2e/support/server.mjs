@@ -7,10 +7,10 @@ import { createApp } from '../../server/src/app.js';
 import { defaultAdminDir, packageInfo } from '../../server/src/index.js';
 
 export const SETUP_CODE = '2468-1357';
-export const OWNER = Object.freeze({ username: 'owner', displayName: '王所有者', password: 'owner-pass-123' });
+export const OWNER = Object.freeze({ username: 'owner', displayName: '王管理', password: 'owner-pass-123' });
 export const ORG = '鲸翼测试公司';
 
-/** 启动服务端。setup 为真时先用接口初始化好企业和所有者，返回能直接调管理接口的 admin()。 */
+/** 启动服务端。setup 为真时先用接口初始化好企业和第一个管理员，返回能直接调管理接口的 admin()。 */
 export async function startServer({ setup = true } = {}) {
   if (!existsSync(path.join(defaultAdminDir, 'index.html'))) throw new Error('还没构建管理端网页，先在仓库根目录运行 npm run build');
   const dataDir = await mkdtemp(path.join(os.tmpdir(), 'wwe-e2e-server-'));
@@ -34,9 +34,9 @@ export async function startServer({ setup = true } = {}) {
   const file = (kind, slug, rel) => `/items/${kind}/${slug}/files/${rel.split('/').map(encodeURIComponent).join('/')}`;
   return {
     origin, dataDir, get instance() { return instance; },
-    /** 用所有者身份调接口（造测试数据用，不走界面）。 */
+    /** 用第一个管理员的身份调接口（造测试数据用，不走界面）。 */
     admin: request,
-    /** 用所有者身份重新登录（改了所有者密码、作废了其他登录之后用）。 */
+    /** 用第一个管理员重新登录（改了他的密码、作废了其他登录之后用）。 */
     relogin: () => request('POST', '/auth/login', { username: OWNER.username, password: OWNER.password, client: 'admin' }),
     putFile: (kind, slug, rel, content, baseHash = null) => request('PUT', file(kind, slug, rel), { content, baseHash }),
     /** 停掉服务端但保留数据（模拟员工连不上）。 */

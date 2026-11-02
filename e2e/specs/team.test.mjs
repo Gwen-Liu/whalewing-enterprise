@@ -56,6 +56,15 @@ const searchKnowledge = async (page, words) => {
   await page.getByRole('button', { name: '查找笔记', exact: true }).click();
 };
 const userId = async username => (await server.admin('GET', '/admin/users')).users.find(user => user.username === username).id;
+/** 「团队」页签里的二级页：我的工作、团队看板、项目、团队资料。 */
+const teamPage = async (page, name) => {
+  const tab = teamView(page).getByRole('tab', { name, exact: true });
+  await tab.click();
+  await page.waitForFunction(label => [...document.querySelectorAll('div[aria-label="团队"] [role="tab"]')].some(button => button.textContent.trim() === label && button.getAttribute('aria-selected') === 'true'), name);
+};
+const assistantDraft = (page, text = 'team_work') => page.waitForFunction(value => document.querySelector('aside.ww-assistant [data-composer-input]')?.innerText.includes(value), text);
+// 北京时间的日期，往前往后挪几天。
+const isoDay = offset => new Date(Date.now() + 8 * 3600_000 + offset * 86_400_000).toISOString().slice(0, 10);
 
 function clean({ errors, external }) {
   assert.deepEqual(errors, [], '页面不能报错');
@@ -133,6 +142,7 @@ test('TEAM-03 团队页签：能看的知识空间、专家、技能都在，看
   await withPage(browser, t, async session => {
     const { page } = session;
     await open(session);
+    await teamPage(page, '团队资料');
     const view = teamView(page);
     await view.getByText('研发手册', { exact: true }).waitFor();
     const text = await textOf(view);
@@ -213,6 +223,7 @@ test('TEAM-07 维护人在团队页签新建笔记：写到服务端，个人知
   await withPage(browser, t, async session => {
     const { page } = session;
     await open(session);
+    await teamPage(page, '团队资料');
     const menu = await openMenu(page, '研发手册的操作');
     await menu.getByRole('button', { name: '新建笔记' }).click();
     const editor = drawer(page, '在「研发手册」新建笔记');
@@ -235,6 +246,7 @@ test('TEAM-08 提交个人笔记：只发选中的那一篇，个人知识库的
   await withPage(browser, t, async session => {
     const { page } = session;
     await open(session);
+    await teamPage(page, '团队资料');
     const menu = await openMenu(page, '研发手册的操作');
     await menu.getByRole('button', { name: '提交个人笔记' }).click();
     const editor = drawer(page, '把个人笔记提交到团队');
@@ -261,6 +273,7 @@ test('TEAM-09 维护人修改团队技能的 SKILL.md：写回服务端', async 
   await withPage(browser, t, async session => {
     const { page } = session;
     await open(session);
+    await teamPage(page, '团队资料');
     const menu = await openMenu(page, '团队周报的操作');
     await menu.getByRole('button', { name: '编辑技能' }).click();
     const editor = drawer(page, '编辑技能 团队周报');
@@ -285,7 +298,119 @@ test('TEAM-10 管理员新加了内容：点刷新马上出现', async t => {
     await open(session);
     await refresh(page);
     await toast(page, '团队内容已是最新', 'success').waitFor();
+    await teamPage(page, '团队资料');
     await teamView(page).getByText('新人手册', { exact: true }).waitFor();
+    clean(session);
+  });
+});
+
+// ---------- 企业管理：我的工作、团队看板、项目 ----------
+
+// 企业管理设计§我的工作：默认打开；数字卡片只筛选不跳页；“更新”打开右侧抽屉，改动进动态。
+test('TEAM-15 我的工作：先处理里有逾期和等我答复；新建事项；卡片筛选；更新状态写进动态', async t => {
+  const lead = await userId('lead');
+  const dev = await server.admin('POST', '/admin/users', { username: 'dev', displayName: '丁开发', password: 'dev-pass-1234', role: 'member', departmentId: data.rd.id });
+  const late = await server.admin('POST', '/work/items', { title: '登录页改版', assigneeId: lead, status: 'doing', dueDate: isoDay(-2), progress: 90 });
+  await server.admin('POST', '/work/items', { title: '需求范围确认', assigneeId: dev.id, status: 'waiting', waitingOn: lead, waitingNote: '等组长确认范围' });
+  await withPage(browser, t, async session => {
+    const { page } = session;
+    await open(session);
+    const view = teamView(page);
+    await view.getByText('登录页改版').waitFor();
+    assert.equal(await view.getByRole('tab', { name: '团队看板' }).count(), 0, '成员看不到团队看板');
+    assert.match(await textOf(view.locator('h2').first()), /^\d+月\d+日 周./);
+    const text = await textOf(view);
+    assert.match(text, /逾期 1 今天到期 0 进行中 1 等我答复 1 本周完成 0/);
+    assert.match(text, /先处理 · 2/);
+    assert.match(text, /逾期 2 天/);
+    assert.match(text, /等我答复（来自 丁开发）/);
+
+    await view.getByRole('button', { name: '＋ 新事项' }).click();
+    const create = drawer(page, '新事项');
+    await wwField(create, '标题').fill('整理发布清单');
+    await wwField(create, '截止日期').fill(isoDay(0));
+    await create.locator('footer').getByRole('button', { name: '建好事项' }).click();
+    await toast(page, '已建好 RW-', 'success').waitFor();
+    await view.getByText('整理发布清单').waitFor();
+    assert.match(await textOf(view), /先处理 · 3/);
+
+    await view.getByRole('button', { name: /^\s*逾期\s*1\s*$/ }).click();
+    await page.waitForFunction(() => !document.querySelector('div[aria-label="团队"]').innerText.includes('整理发布清单'));
+    assert.match(await textOf(view), /只看“逾期”/);
+    await view.getByRole('listitem').filter({ hasText: '登录页改版' }).getByRole('button', { name: '更新' }).click();
+    const update = drawer(page, `${late.number} 登录页改版`);
+    await wwField(update, '状态').selectOption({ label: '已完成（已完成）' });
+    await wwField(update, '写一句动态（可选）').fill('已经上线');
+    await update.locator('footer').getByRole('button', { name: '保存修改' }).click();
+    await toast(page, `已保存 ${late.number}`, 'success').waitFor();
+    assert.match(await textOf(update), /状态：进行中 → 已完成/);
+    assert.match(await textOf(update), /“已经上线”/);
+    const saved = await server.admin('GET', `/work/items/${late.id}`);
+    assert.deepEqual([saved.category, saved.progress, saved.events.at(-1).actorName], ['done', 100, '李组长']);
+    clean(session);
+  });
+});
+
+// 企业管理设计§团队看板：有管理范围才看得到；组长自己的事项不混在看板里；点人看他的事项；“让小鲸分析”带着范围打开小鲸。
+test('TEAM-16 团队看板：当上研发部负责人后出现；点人看他的事项；让小鲸分析', async t => {
+  const lead = await userId('lead');
+  const roles = (await server.admin('GET', '/admin/roles')).roles;
+  await server.admin('PATCH', `/admin/users/${lead}`, { roleId: roles.find(role => role.preset === 'lead').id });
+  await server.admin('PUT', `/admin/departments/${data.rd.id}/managers`, { userIds: [lead] });
+  await withPage(browser, t, async session => {
+    const { page } = session;
+    await open(session);
+    await refresh(page);
+    await teamPage(page, '团队看板');
+    const view = teamView(page);
+    await view.getByText('研发部 · 1 人').waitFor();
+    assert.match(await textOf(view), /进行中 0 逾期 0 等待中 1 本周完成 0/);
+    await view.getByRole('button', { name: '丁开发' }).click();
+    const person = drawer(page, '丁开发手上的事项');
+    await person.getByRole('button', { name: /需求范围确认/ }).click();
+    const item = drawer(page, '需求范围确认');
+    await item.getByText('在等').first().waitFor();
+    assert.match(await textOf(item), /李组长：等组长确认范围/);
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await view.getByRole('button', { name: '让小鲸分析' }).click();
+    await assistantDraft(page);
+    clean(session);
+  });
+});
+
+// 企业管理设计§项目 和 §我的工作“交给专家”：加号卡片建项目；项目里建事项；事项交给专家时带着事项打开小鲸。
+test('TEAM-17 项目：加号卡片建项目、在项目里建事项；事项菜单“交给专家”打开小鲸', async t => {
+  await withPage(browser, t, async session => {
+    const { page } = session;
+    await open(session);
+    await teamPage(page, '项目');
+    const view = teamView(page);
+    await view.getByRole('button', { name: /新项目/ }).click();
+    const create = drawer(page, '新项目');
+    await wwField(create, '项目名称').fill('客户门户');
+    await create.locator('label', { hasText: '丁开发' }).getByRole('checkbox').check();
+    await create.locator('footer').getByRole('button', { name: '建好项目' }).click();
+    await toast(page, '项目“客户门户”已建好', 'success').waitFor();
+    await view.getByText('客户门户', { exact: true }).click();
+    const project = drawer(page, '客户门户');
+    await project.getByText('成员：丁开发').waitFor();
+    await project.locator('footer').getByRole('button', { name: '＋ 在项目里建事项' }).click();
+    const item = drawer(page, '新事项');
+    await wwField(item, '项目').locator('option', { hasText: '客户门户' }).waitFor({ state: 'attached' });
+    assert.equal(await wwField(item, '项目').locator('option:checked').innerText(), '客户门户', '从项目里建事项时项目已选好');
+    await wwField(item, '标题').fill('门户首页');
+    await item.locator('footer').getByRole('button', { name: '建好事项' }).click();
+    await toast(page, '已建好', 'success').waitFor();
+    await drawer(page, '客户门户').getByText('门户首页').waitFor();
+    await page.keyboard.press('Escape');
+
+    await teamPage(page, '我的工作');
+    const row = view.getByRole('listitem').filter({ hasText: '门户首页' });
+    const number = (await textOf(row)).match(/RW-\d{6}-\d{3}/)[0];
+    const menu = await openMenu(page, number + '的操作');
+    await menu.getByRole('button', { name: '交给专家' }).click();
+    await assistantDraft(page, number);
     clean(session);
   });
 });
@@ -303,6 +428,10 @@ test('TEAM-11 服务端连不上：提示原因、页头标离线，团队笔记
       assert.match(await textOf(failed), /重试/);
       await page.waitForFunction(() => document.querySelector('div[aria-label="团队"] p')?.textContent.includes('离线'));
       assert.match(await textOf(teamView(page)), /暂时连不上企业服务端/);
+      // 企业管理设计§我的工作：连不上时显示上次同步的“我的工作”，标明是缓存，不能改。
+      await teamPage(page, '我的工作');
+      await teamView(page).getByText('现在看的是缓存').waitFor();
+      assert.equal(await teamView(page).getByRole('button', { name: '＋ 新事项' }).count(), 0, '缓存只能看，不能改');
       await searchKnowledge(page, '两人以上');
       await page.getByRole('button', { name: /研发手册 \/ 代码评审/ }).waitFor();
     } finally {
@@ -341,6 +470,7 @@ test('TEAM-12 账号被停用：团队内容撤掉并说明原因；启用后用
     await wwField(confirm, '密码').fill(PASSWORD);
     await confirm.getByRole('button', { name: '确认登录' }).click();
     await toast(page, `已加入“${ORG}”`, 'success').waitFor();
+    await teamPage(page, '团队资料');
     await teamView(page).getByText('研发手册', { exact: true }).waitFor();
     clean(session);
   });
@@ -351,6 +481,7 @@ test('TEAM-13 退出团队：居中确认后退出，专家、知识、技能里
   await withPage(browser, t, async session => {
     const { page } = session;
     await open(session);
+    await teamPage(page, '团队资料');
     await teamView(page).getByRole('button', { name: '退出团队' }).click();
     const confirm = modal(page, '退出团队');
     assert.match(await textOf(confirm), /个人知识、个人技能和会话都不受影响/);
