@@ -10,7 +10,7 @@
 npx whalewing-enterprise-server@0.2.1-rc.5.1 --data ./data
 ```
 
-国内网络加上 `--registry https://registry.npmmirror.com`。第一次启动会打印初始化码，打开 `http://服务器地址:8730/admin/` 按向导建企业和第一个管理员。
+国内网络写成 `npx --registry https://registry.npmmirror.com whalewing-enterprise-server@0.2.1-rc.5.1 --data ./data`（`--registry` 要在包名前面）。第一次启动会打印初始化码，打开 `http://服务器地址:8730/admin/` 按向导建企业和第一个管理员。
 
 常用参数：`--port`（默认 8730）、`--host`（默认 0.0.0.0）、`--trust-proxy`（放在 Nginx、Caddy 后面时加上）。`whalewing-enterprise-server backup --data ./data` 备份数据。
 
