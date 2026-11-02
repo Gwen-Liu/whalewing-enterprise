@@ -107,7 +107,7 @@ test('ADM-03 部门：新建、建下级、改名，不能移到自己下级，�
   await withPage(browser, t, async session => {
     const { page } = session;
     await login(page);
-    await go(page, '成员');
+    await go(page, '组织与人员');
     await page.getByRole('button', { name: '＋ 新建部门' }).click();
     let drawer = dialog(page, '新建部门');
     await field(drawer, '部门名称').fill('研发部');
@@ -151,7 +151,7 @@ test('ADM-04 成员：新建账号、改部门、重置密码、停用后令牌�
   await withPage(browser, t, async session => {
     const { page } = session;
     await login(page);
-    await go(page, '成员');
+    await go(page, '组织与人员');
     await page.getByRole('button', { name: '新建账号' }).click();
     let drawer = dialog(page, '新建账号');
     await field(drawer, '名字').fill('张三');
@@ -186,7 +186,7 @@ test('ADM-04 成员：新建账号、改部门、重置密码、停用后令牌�
       body: JSON.stringify({ username: 'zhangsan', password: 'zhang-pass-2', client: 'plugin' }) }).then(response => response.json());
     await menu(page, '张三的操作', '停用账号');
     const confirm = dialog(page, '停用账号');
-    assert.match(await textOf(confirm), /个人内容不受影响/);
+    assert.match(await textOf(confirm), /个人内容和负责的事项不受影响/);
     await confirm.getByRole('button', { name: '停用账号' }).click();
     await toast(page, 'success', '已停用').waitFor();
     await row.filter({ hasText: '已停用' }).waitFor();
@@ -196,7 +196,7 @@ test('ADM-04 成员：新建账号、改部门、重置密码、停用后令牌�
     await toast(page, 'success', '已重新启用').waitFor();
     await page.getByPlaceholder('找名字或登录名').fill('zhang');
     assert.equal(await page.locator('tbody tr').count(), 1);
-    // 所有者不能被停用：菜单里没有“停用账号”。
+    // 自己不能停用自己：菜单里没有“停用账号”（管理员之间平级，没有“所有者”）。
     await page.getByPlaceholder('找名字或登录名').fill('owner');
     await page.getByRole('button', { name: `${OWNER.displayName}的操作` }).click();
     assert.equal(await page.getByRole('menuitem', { name: '停用账号' }).count(), 0);
@@ -209,7 +209,7 @@ test('ADM-05 邀请：生成链接（只显示一次、能复制）、邀请记�
   await withPage(browser, t, async session => {
     const { page } = session;
     await login(page);
-    await go(page, '成员');
+    await go(page, '组织与人员');
     await page.getByRole('button', { name: '研发中心', exact: true }).click();
     await page.getByRole('button', { name: '邀请成员' }).click();
     const drawer = dialog(page, '邀请成员');
@@ -466,6 +466,282 @@ test('ADM-11 设置：改企业名称、对外地址写错拦下、写对后邀�
   });
 });
 
+// ---------- 企业管理：管理员、角色、负责人、事项类型、看板、项目、回收站、导入 ----------
+
+// 企业管理设计§超级管理员在系统之外，管理员在系统之内：管理员可以有多个、互相平级；自己不能停用、不能改自己的身份。
+test('ADM-16 管理员平级：任命第二位管理员、互相能停用和重置密码；自己的身份不能改', async t => {
+  await withPage(browser, t, async session => {
+    const { page } = session;
+    await login(page);
+    await go(page, '组织与人员');
+    await page.getByRole('button', { name: '新建账号' }).click();
+    const drawer = dialog(page, '新建账号');
+    await field(drawer, '名字').fill('李管理');
+    await field(drawer, '登录名').fill('admin2');
+    await field(drawer, '初始密码').fill('admin2-pass-1');
+    await field(drawer, '身份').selectOption({ label: '管理员' });
+    assert.equal(await field(drawer, '角色').count(), 0, '管理员不挂角色');
+    await drawer.getByRole('button', { name: '创建账号' }).click();
+    await toast(page, 'success', '账号已建好').waitFor();
+    const row = page.locator('tr', { hasText: 'admin2' });
+    assert.match(await textOf(row), /李管理 admin2 — 管理员/);
+
+    await menu(page, '李管理的操作', '重置密码');
+    const reset = dialog(page, '重置 李管理 的密码');
+    await field(reset, '新密码').fill('admin2-pass-2');
+    await reset.getByRole('button', { name: '重置密码' }).click();
+    await toast(page, 'success', '密码已重置').waitFor();
+    await menu(page, '李管理的操作', '停用账号');
+    await dialog(page, '停用账号').getByRole('button', { name: '停用账号' }).click();
+    await toast(page, 'success', '已停用').waitFor();
+    await menu(page, '李管理的操作', '重新启用');
+    await toast(page, 'success', '已重新启用').waitFor();
+
+    await menu(page, `${OWNER.displayName}的操作`, '编辑');
+    const self = dialog(page, `编辑 ${OWNER.displayName}`);
+    assert.equal(await field(self, '身份').isDisabled(), true);
+    assert.match(await textOf(self), /不能改自己的身份/);
+    clean(session);
+  });
+});
+
+// 企业管理设计§管理员自己定义的角色、§上下级从哪来：角色 = 权限点 + 数据范围；负责人在部门树上设；还不是负责人时管理端提示。
+test('ADM-17 角色与权限：建“小组长”、有人用着的角色删不掉；给张三换角色后提示还不是负责人，设成部门负责人后提示消失', async t => {
+  await withPage(browser, t, async session => {
+    const { page } = session;
+    await login(page);
+    await go(page, '角色与权限');
+    const cards = page.locator('article.item-card');
+    assert.match(await textOf(cards.filter({ hasText: '负责人' }).first()), /负责人 ?预置 .*数据范围：管理范围 .*派事项.*看团队看板/);
+    await page.getByRole('button', { name: /新建角色/ }).click();
+    const drawer = dialog(page, '新建角色');
+    await field(drawer, '角色名称').fill('小组长');
+    await drawer.locator('label.check', { hasText: '管理范围' }).getByRole('radio').check();
+    for (const permission of ['派事项', '调整事项', '看团队看板']) await drawer.locator('label.check', { hasText: new RegExp(`^${permission}`) }).getByRole('checkbox').check();
+    await drawer.getByRole('button', { name: '建好角色' }).click();
+    await toast(page, 'success', '角色已建好').waitFor();
+    assert.match(await textOf(cards.filter({ hasText: '小组长' })), /数据范围：管理范围 新建事项、派事项、调整事项、看团队看板 0 人用着这个角色/);
+
+    await menu(page, '成员的操作', '删除角色');
+    await dialog(page, '删除角色').getByRole('button', { name: '删除角色' }).click();
+    await toast(page, 'error', '用着“成员”').waitFor();
+    // 删不掉时确认框留着，看完原因点“取消”。
+    await dialog(page, '删除角色').getByRole('button', { name: '取消' }).click();
+
+    await go(page, '组织与人员');
+    await menu(page, '张三的操作', '编辑');
+    const edit = dialog(page, '编辑 张三');
+    await field(edit, '角色').selectOption({ label: '小组长' });
+    await edit.getByRole('button', { name: '保存修改' }).click();
+    await toast(page, 'success', '已保存修改').waitFor();
+    const row = page.locator('tr', { hasText: 'zhangsan' });
+    await row.filter({ hasText: '还不是负责人' }).waitFor();
+
+    await page.getByRole('button', { name: '研发中心', exact: true }).click();
+    await page.getByRole('button', { name: '研发中心的操作' }).click();
+    await page.getByRole('menuitem', { name: '设置负责人' }).click();
+    const managers = dialog(page, '设置“研发中心”的负责人');
+    await managers.locator('label.check', { hasText: 'zhangsan' }).getByRole('checkbox').check();
+    await managers.getByRole('button', { name: '保存负责人' }).click();
+    await toast(page, 'success', '负责人已设好').waitFor();
+    await page.getByText('负责人：张三').waitFor();
+    assert.equal(await row.filter({ hasText: '还不是负责人' }).count(), 0);
+    assert.match(await textOf(row), /张三 ?负责人 zhangsan/);
+    clean(session);
+  });
+});
+
+// 企业管理设计§一种事项，多种类型：类型定编号前缀、状态（归到五个大类）和专属字段。
+test('ADM-18 事项类型：加号卡片建“开发”，前缀自动大写、重复被拦下；停用和重新启用', async t => {
+  await withPage(browser, t, async session => {
+    const { page } = session;
+    await login(page);
+    await go(page, '事项类型');
+    assert.match(await textOf(page.locator('article.item-card').first()), /任务 ?RW .*编号形如 RW-\d{6}-001 未开始 进行中 等待中 已完成 已取消/);
+    await page.getByRole('button', { name: /新建类型/ }).click();
+    let drawer = dialog(page, '新建事项类型');
+    await field(drawer, '类型名称').fill('开发');
+    await field(drawer, '编号前缀').fill('rw');
+    await drawer.getByRole('textbox', { name: '第 1 个状态的名字' }).fill('待开发');
+    await drawer.getByRole('button', { name: '＋ 加一个字段' }).click();
+    await drawer.getByRole('textbox', { name: '第 1 个字段的名字' }).fill('模块');
+    await drawer.getByRole('combobox', { name: '“模块”的类型' }).selectOption({ label: '单选' });
+    await drawer.getByRole('textbox', { name: '“模块”的选项' }).fill('前端、后端');
+    await drawer.getByRole('button', { name: '建好类型' }).click();
+    await toast(page, 'error', '已经被别的类型用了').waitFor();
+    await field(drawer, '编号前缀').fill('kf');
+    await drawer.getByRole('button', { name: '建好类型' }).click();
+    await toast(page, 'success', '类型已建好').waitFor();
+    const card = page.locator('article.item-card', { hasText: '开发' });
+    assert.match(await textOf(card), /开发 ?KF .*编号形如 KF-\d{6}-001 待开发 ?·未开始 进行中 .*专属字段：模块（单选）/);
+    await menu(page, '开发的操作', '停用');
+    await toast(page, 'success', '已停用').waitFor();
+    await card.filter({ hasText: '已停用' }).waitFor();
+    await menu(page, '开发的操作', '重新启用');
+    await toast(page, 'success', '已重新启用').waitFor();
+    clean(session);
+  });
+});
+
+// 企业管理设计§团队看板、§管理员是系统里的最高权限：全局看板和员工端同一份数据；管理员能调整任何人的事项，改动进动态和操作记录。
+test('ADM-19 全局看板：点部门进去、点人看他的事项；管理员调整截止日期和优先级，动态和操作记录都有', async t => {
+  const zhang = (await server.admin('GET', '/admin/users')).users.find(user => user.username === 'zhangsan');
+  const past = new Date(Date.now() + 8 * 3600_000 - 3 * 86_400_000).toISOString().slice(0, 10);
+  await server.admin('POST', '/work/items', { title: '接口联调', assigneeId: zhang.id, status: 'doing', dueDate: past });
+  await server.admin('POST', '/work/items', { title: '写接口文档', assigneeId: zhang.id });
+  await withPage(browser, t, async session => {
+    const { page } = session;
+    await login(page);
+    await go(page, '全局看板');
+    const departments = page.locator('table').first();
+    const center = departments.locator('tr', { hasText: '研发中心' });
+    assert.match(await textOf(center), /研发中心 张三 \d+ 1 1 0 0/);
+    await center.getByRole('button', { name: '研发中心' }).click();
+    await page.getByRole('button', { name: '后端组' }).click();
+    await page.getByRole('heading', { name: /研发中心 \/ 后端组/ }).waitFor();
+    await page.getByRole('button', { name: '张三', exact: true }).click();
+    const person = dialog(page, '张三手上的事项');
+    await person.getByRole('button', { name: '接口联调' }).waitFor();
+    assert.match(await textOf(person), /接口联调 .*逾期 3 天/);
+    await person.getByRole('button', { name: '接口联调' }).click();
+    const item = dialog(page, /接口联调/);
+    await field(item, '截止日期').fill('2030-01-15');
+    await field(item, '优先级').selectOption({ label: '高' });
+    await field(item, '写一句动态（可选）').fill('客户同意延期');
+    await item.getByRole('button', { name: '保存修改' }).click();
+    await toast(page, 'success', '已保存 RW-').waitFor();
+    assert.match(await textOf(item), /优先级：中 → 高；截止日期：\d{4}-\d{2}-\d{2} → 2030-01-15 “客户同意延期”/);
+    const audit = await server.admin('GET', '/admin/audit?action=work.adjust');
+    assert.match(audit.entries[0].detail.changes.join(' '), /截止日期：.* → 2030-01-15/);
+    assert.equal(audit.entries[0].detail.via, '本人操作');
+    clean(session);
+  });
+});
+
+// 企业管理设计§项目、§防止越权：项目和成员；删除先进回收站，管理员能恢复，彻底删除只能在服务器上用命令行。
+test('ADM-20 项目和回收站：新建项目、改成已结束；事项放进回收站后能恢复', async t => {
+  await withPage(browser, t, async session => {
+    const { page } = session;
+    await login(page);
+    await go(page, '项目');
+    await page.getByRole('button', { name: '新建项目' }).click();
+    const drawer = dialog(page, '新建项目');
+    await field(drawer, '项目名称').fill('客户门户');
+    await drawer.locator('label.check', { hasText: 'zhangsan' }).getByRole('checkbox').check();
+    await drawer.getByRole('button', { name: '建好项目' }).click();
+    await toast(page, 'success', '项目已建好').waitFor();
+    const row = page.locator('tr', { hasText: '客户门户' });
+    assert.match(await textOf(row), /客户门户 王管理 1 0 0 .* 进行中/);
+    await menu(page, '客户门户的操作', '编辑');
+    const edit = dialog(page, '项目 客户门户');
+    await field(edit, '状态').selectOption({ label: '已结束（不能再加事项）' });
+    await edit.getByRole('button', { name: '保存修改' }).click();
+    await toast(page, 'success', '项目已保存').waitFor();
+    await row.filter({ hasText: '已结束' }).waitFor();
+
+    await go(page, '全局看板');
+    await page.getByRole('button', { name: '研发中心' }).click();
+    await page.getByRole('button', { name: '后端组' }).click();
+    await page.getByRole('button', { name: '张三', exact: true }).click();
+    await dialog(page, '张三手上的事项').getByRole('button', { name: '写接口文档' }).click();
+    const item = dialog(page, /写接口文档/);
+    await item.getByRole('button', { name: '放进回收站' }).click();
+    const confirm = dialog(page, '放进回收站');
+    assert.match(await textOf(confirm), /彻底删除只能在服务器上用命令行/);
+    await confirm.getByRole('button', { name: '放进回收站' }).click();
+    await toast(page, 'success', '已放进回收站').waitFor();
+    // 放进回收站后回到这个人的事项列表，列表里已经没有它了。
+    const back = dialog(page, '张三手上的事项');
+    await back.getByText('接口联调').waitFor();
+    assert.equal(await back.getByRole('button', { name: '写接口文档' }).count(), 0);
+    await page.keyboard.press('Escape');
+
+    await go(page, '回收站');
+    const trashed = page.locator('tr', { hasText: '写接口文档' });
+    assert.match(await textOf(trashed), /写接口文档 张三 王管理/);
+    await trashed.getByRole('button', { name: '恢复' }).click();
+    await toast(page, 'success', '已恢复').waitFor();
+    await page.getByText('回收站是空的。').waitFor();
+    clean(session);
+  });
+});
+
+/** 造一个最小的 .xlsx：第一行表头，日期列用日期格式（Excel 里存的是天数）。 */
+function xlsx(rows) {
+  const strings = [];
+  const index = text => { const at = strings.indexOf(text); return at >= 0 ? at : strings.push(text) - 1; };
+  const cells = rows.map((row, r) => `<row r="${r + 1}">${row.map((value, c) => {
+    const ref = String.fromCharCode(65 + c) + (r + 1);
+    return typeof value === 'number' ? `<c r="${ref}" s="1"><v>${value}</v></c>` : `<c r="${ref}" t="s"><v>${index(value)}</v></c>`;
+  }).join('')}</row>`).join('');
+  const ns = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+  return Buffer.from(zipSync({
+    'xl/workbook.xml': strToU8(`<workbook ${ns} xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets><sheet name="事项" sheetId="1" r:id="rId1"/></sheets></workbook>`),
+    'xl/_rels/workbook.xml.rels': strToU8('<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Target="worksheets/sheet1.xml" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet"/></Relationships>'),
+    'xl/styles.xml': strToU8(`<styleSheet ${ns}><cellXfs count="2"><xf numFmtId="0"/><xf numFmtId="14" applyNumberFormat="1"/></cellXfs></styleSheet>`),
+    'xl/sharedStrings.xml': strToU8(`<sst ${ns}>${strings.map(text => `<si><t>${text}</t></si>`).join('')}</sst>`),
+    'xl/worksheets/sheet1.xml': strToU8(`<worksheet ${ns}><sheetData>${cells}</sheetData></worksheet>`),
+  }));
+}
+
+// 企业管理设计§管理端网页加什么-导入：从表格导入事项，把列对到字段、把旧状态对到新状态和大类。
+test('ADM-21 导入事项：CSV 自动对列和状态；对不上的负责人先说清楚，选“这一行不导入”后导入；Excel 的日期格式也认', async t => {
+  await withPage(browser, t, async session => {
+    const { page } = session;
+    await login(page);
+    await go(page, '导入事项');
+    const csv = '﻿编号,标题,负责人,状态,截止日期\nOLD-1,旧系统事项一,张三,处理中,2026/12/1\nOLD-2,旧系统事项二,zhangsan,已关闭,2026-11-20\nOLD-3,没人认领的,不存在的人,新建,\n';
+    await page.locator('input[type=file]').setInputFiles({ name: '旧系统.csv', mimeType: 'text/csv', buffer: Buffer.from(csv, 'utf8') });
+    await page.getByText('旧系统.csv：5 列，3 行数据。').waitFor();
+    assert.equal(await field(page, '标题（必填）').locator('option:checked').innerText(), '标题');
+    assert.equal(await field(page, '原编号').locator('option:checked').innerText(), '编号');
+    assert.equal(await page.getByRole('combobox', { name: '旧状态“处理中”对到' }).locator('option:checked').innerText(), '进行中');
+    assert.equal(await page.getByRole('combobox', { name: '旧状态“已关闭”对到' }).locator('option:checked').innerText(), '已完成');
+    await page.getByRole('button', { name: '先检查' }).click();
+    await page.getByText('检查完了：2 行能导入，1 行有问题').waitFor();
+    assert.match(await textOf(page.locator('.timeline')), /第 4 行 负责人“不存在的人”还没对上是谁/);
+    await page.getByRole('button', { name: '导入', exact: true }).click();
+    await toast(page, 'error', '一个都没导入').waitFor();
+    await page.getByRole('combobox', { name: '“不存在的人”是谁' }).selectOption({ label: '这一行不导入' });
+    await page.getByRole('button', { name: '导入', exact: true }).click();
+    await toast(page, 'success', '已导入 2 个事项').waitFor();
+    const imported = (await server.admin('GET', '/work/items?q=旧系统')).items;
+    assert.deepEqual(imported.map(item => [item.title, item.category, item.dueDate]).sort(), [['旧系统事项一', 'doing', '2026-12-01'], ['旧系统事项二', 'done', '2026-11-20']]);
+
+    // Excel：第一张工作表，日期是带日期格式的天数。
+    const file = xlsx([['标题', '负责人', '截止日期'], ['从 Excel 来的', '张三', 46022]]);
+    await page.locator('input[type=file]').setInputFiles({ name: '旧系统.xlsx', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', buffer: file });
+    await page.getByText('旧系统.xlsx：3 列，1 行数据。').waitFor();
+    await page.getByRole('button', { name: '导入', exact: true }).click();
+    await toast(page, 'success', '已导入 1 个事项').waitFor();
+    const fromExcel = (await server.admin('GET', '/work/items?q=Excel')).items[0];
+    assert.deepEqual([fromExcel.dueDate, fromExcel.statusName], ['2025-12-31', '未开始']);
+    clean(session);
+  });
+});
+
+// 企业管理设计§“看”和“改”分开：事项默认谁能看，企业设置里可以改成全员可见。
+test('ADM-22 设置：事项默认谁能看改成全员可见；时区写错被拦下', async t => {
+  await withPage(browser, t, async session => {
+    const { page } = session;
+    await login(page);
+    await go(page, '设置');
+    await page.locator('label.check', { hasText: '全员可见' }).getByRole('radio').check();
+    await field(page, '时区').fill('北京');
+    await page.getByRole('button', { name: '保存修改' }).first().click();
+    await toast(page, 'error', 'Asia/Shanghai 这样的写法').waitFor();
+    await field(page, '时区').fill('Asia/Shanghai');
+    await page.getByRole('button', { name: '保存修改' }).first().click();
+    await toast(page, 'success', '已保存修改').waitFor();
+    assert.equal((await server.admin('GET', '/admin/settings')).workVisibility, 'all');
+    await page.locator('label.check', { hasText: '数据范围里的' }).getByRole('radio').check();
+    await page.getByRole('button', { name: '保存修改' }).first().click();
+    await toast(page, 'success', '已保存修改').waitFor();
+    assert.equal((await server.admin('GET', '/admin/settings')).workVisibility, 'scope');
+    clean(session);
+  });
+});
+
 // 设计§安全-操作记录：记谁改了成员、权限和团队内容；能按类型筛选；不记密码。
 test('ADM-12 操作记录：有前面的操作，按类型筛选，不含密码', async t => {
   await withPage(browser, t, async session => {
@@ -474,7 +750,7 @@ test('ADM-12 操作记录：有前面的操作，按类型筛选，不含密码'
     await go(page, '操作记录');
     const table = page.locator('tbody');
     await table.locator('tr', { hasText: '新建部门' }).first().waitFor();
-    assert.match(await textOf(table), /王所有者（owner） 新建成员 zhangsan/);
+    assert.match(await textOf(table), new RegExp(`${OWNER.displayName}（owner） 新建成员 zhangsan`));
     await page.getByRole('button', { name: '部门', exact: true }).click();
     await page.waitForFunction(() => [...document.querySelectorAll('tbody tr')].every(row => row.textContent.includes('部门')));
     await page.getByRole('button', { name: '团队内容文件', exact: true }).click();
@@ -487,7 +763,8 @@ test('ADM-12 操作记录：有前面的操作，按类型筛选，不含密码'
 
 // ---------- 布局和主题 ----------
 
-const PAGES = [['概览', '概览'], ['成员', '成员'], ['团队知识', '团队知识'], ['团队专家', '团队专家'], ['团队技能', '团队技能'], ['设置', '设置'], ['操作记录', '操作记录']];
+const PAGES = [['概览', '概览'], ['组织与人员', '组织与人员'], ['角色与权限', '角色与权限'], ['全局看板', '全局看板'], ['项目', '项目'], ['事项类型', '事项类型'], ['回收站', '回收站'],
+  ['导入事项', '从表格导入事项'], ['团队知识', '团队知识'], ['团队专家', '团队专家'], ['团队技能', '团队技能'], ['设置', '设置'], ['操作记录', '操作记录']];
 
 // 用户 2026-11-01 反馈：管理端要跟着浏览器窗口大小自适应，宽屏不空一大块，窄屏不被撑出横向滚动。
 for (const [width, height, columns] of [[375, 812, 2], [768, 1024, 3], [1280, 800, 3], [1920, 1080, 6]]) {

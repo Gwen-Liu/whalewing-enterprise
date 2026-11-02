@@ -7,7 +7,7 @@
 | 目录 | 是什么 | 发布 |
 | --- | --- | --- |
 | `shared/` | 员工端和服务端共用的接口定义、常量、校验 | 不单独发布，打包进另外两个包 |
-| `server/` | 服务端：账号、部门、权限、团队内容，提供员工端接口和管理端网页 | npm 包 `whalewing-enterprise-server` |
+| `server/` | 服务端：账号、部门、角色和权限、团队内容、事项和项目，提供员工端接口和管理端网页 | npm 包 `whalewing-enterprise-server` |
 | `admin/` | 管理端网页源码（React + Vite），构建到 `server/admin-dist` | 随服务端发布 |
 | `plugin/` | 员工电脑上装的 DSH 组合包，依赖鲸翼个人版 | npm 包 `dsh-whalewing-enterprise` |
 | `docs/` | 设计、部署、开发文档 | 随仓库公开 |

@@ -30,7 +30,7 @@ export function SetupPage({ onDone }) {
     } catch (error) { setProblem(error.message); } finally { setBusy(false); }
   };
   return (
-    <AuthFrame title="初始化企业" summary="第一次打开管理端：填企业名称，建第一个管理员（所有者）。之后员工靠你发的邀请加入。">
+    <AuthFrame title="初始化企业" summary="第一次打开管理端：填企业名称，建第一个管理员。管理员可以有多个，之后可以再任命；员工靠邀请加入。">
       <form className="form" onSubmit={submit}>
         <Field label="初始化码" hint="在服务端的启动日志里，或者数据目录的 setup-code.txt 里。">
           <input value={form.setupCode} onChange={set('setupCode')} placeholder="例如 1234-5678" autoComplete="off" required />
@@ -65,7 +65,7 @@ export function LoginPage({ orgName, problem: initial, onDone }) {
     finally { setBusy(false); }
   };
   return (
-    <AuthFrame title={orgName ? `登录 ${orgName}` : '登录管理端'} summary="管理员和所有者用自己的账号登录。员工请在鲸翼的「团队」页签登录。">
+    <AuthFrame title={orgName ? `登录 ${orgName}` : '登录管理端'} summary="管理员用自己的账号登录。员工请在鲸翼的「团队」页签登录。">
       <form className="form" onSubmit={submit}>
         <Field label="登录名"><input value={username} onChange={event => setUsername(event.target.value)} autoComplete="username" autoFocus required /></Field>
         <Field label="密码"><input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required /></Field>

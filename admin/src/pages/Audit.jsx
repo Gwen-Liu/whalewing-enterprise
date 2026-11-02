@@ -5,6 +5,10 @@ import { Empty, formatTime, PageHeader, useToast } from '../ui.jsx';
 const FILTERS = [
   { value: '', label: '全部' },
   { value: 'user', label: '成员' },
+  { value: 'role', label: '角色' },
+  { value: 'work.', label: '事项' },
+  { value: 'project', label: '项目' },
+  { value: 'worktype', label: '事项类型' },
   { value: 'department', label: '部门' },
   { value: 'invite', label: '邀请' },
   { value: 'item', label: '团队内容设置' },
@@ -34,7 +38,7 @@ export function AuditPage() {
 
   return (
     <>
-      <PageHeader title="操作记录" summary="谁在什么时候改了成员、权限和团队内容。只记管理动作，不记员工的会话和个人内容。" />
+      <PageHeader title="操作记录" summary="谁在什么时候改了成员、角色、权限、团队内容，以及事项的截止日期、优先级、负责人和删除（写明是本人操作还是经模型）。只记管理动作，不记员工的会话和个人内容。" />
       <div className="row filters" role="group" aria-label="按类型筛选">
         {FILTERS.map(filter => <button key={filter.value} type="button" className={`pill${action === filter.value ? ' active' : ''}`} onClick={() => setAction(filter.value)}>{filter.label}</button>)}
       </div>

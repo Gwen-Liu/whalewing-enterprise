@@ -9,7 +9,7 @@ export function OverviewPage() {
   const load = useCallback(() => call('GET', '/admin/overview').then(setData).catch(error => notify(error.message, { kind: 'error', action: { label: '重试', run: load } })), [call, notify]);
   useEffect(() => { load(); }, [load]);
   if (!data) return <PageHeader title="概览" summary="正在读取…" />;
-  const { members, content, settings, recent } = data;
+  const { members, content, settings, recent, work, roles } = data;
   const stats = [
     { label: '成员', value: members.active, note: members.total > members.active ? `另有 ${members.total - members.active} 人已停用` : '全部在用', to: 'members' },
     { label: '最近 7 天连过', value: members.recentlySeen, note: '员工端或管理端用过的人', to: 'members' },
@@ -32,6 +32,22 @@ export function OverviewPage() {
           </button>
         ))}
       </div>
+      <div className="grid work-stats">
+        {[
+          { label: '没做完的事项', value: work.open, note: '全企业，不含回收站', to: 'board' },
+          { label: '逾期', value: work.overdue, note: '截止日期过了还没做完', to: 'board' },
+          { label: '进行中的项目', value: work.projects, note: '已结束的不算', to: 'projects' },
+          { label: '回收站', value: work.trashed, note: '管理员能恢复', to: 'trash' },
+        ].map(stat => (
+          <button key={stat.label} type="button" className="card stat" onClick={() => go(stat.to)}>
+            <span className="muted">{stat.label}</span><strong>{stat.value}</strong><span className="muted small">{stat.note}</span>
+          </button>
+        ))}
+      </div>
+      {roles.map(role => (
+        <div key={role.id} className="notice" style={{ marginTop: 14 }}>角色“{role.name}”的数据范围是管理范围，但其中 {role.notManaging} 人还不是任何部门的负责人，实际上只能管自己。
+          到<button type="button" className="link" onClick={() => go('members')}>组织与人员</button>里给部门设负责人。</div>
+      ))}
       <section className="section">
         <div className="section-head"><h2>最近的管理操作</h2><button type="button" className="link" onClick={() => go('audit')}>全部操作记录</button></div>
         {recent.length ? (

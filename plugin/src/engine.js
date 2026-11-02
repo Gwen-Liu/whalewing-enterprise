@@ -61,7 +61,7 @@ async function removeEmptyDirs(dir, keep) {
 export class Engine {
   constructor({ baseDir, credentials, credentialKey, personal, version = '0.0.0', fetchImpl, lookup, now = () => Date.now(), onChange = () => {}, log = () => {} }) {
     mkdirSync(path.join(baseDir, 'cache', 'skills'), { recursive: true });
-    // 用真实路径：DSH 报上来的技能位置是真实路径，登记的目录要是写成短文件名（如 QIANQI~1）或经过联接，
+    // 用真实路径：DSH 报上来的技能位置是真实路径，登记的目录要是写成短文件名（如 USERNA~1）或经过联接，
     // 鲸翼比较时对不上，会把团队技能当成不属于扩展而滤掉。
     const root = realpathSync.native(baseDir);
     this.baseDir = root;

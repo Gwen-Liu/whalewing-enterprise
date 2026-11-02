@@ -6,6 +6,10 @@ import { Logo, ToastHost, useToast } from './ui.jsx';
 import { SetupPage, LoginPage } from './pages/Auth.jsx';
 import { OverviewPage } from './pages/Overview.jsx';
 import { MembersPage } from './pages/Members.jsx';
+import { RolesPage } from './pages/Roles.jsx';
+import { WorkTypesPage } from './pages/WorkTypes.jsx';
+import { BoardPage, ProjectsPage, TrashPage } from './pages/Work.jsx';
+import { ImportPage } from './pages/Import.jsx';
 import { ContentPage, ItemPage } from './pages/Content.jsx';
 import { SettingsPage } from './pages/Settings.jsx';
 import { AuditPage } from './pages/Audit.jsx';
@@ -15,10 +19,20 @@ import './styles.css';
 
 const NAV = [
   { path: '', label: '概览' },
-  { path: 'members', label: '成员' },
+  { group: '组织' },
+  { path: 'members', label: '组织与人员' },
+  { path: 'roles', label: '角色与权限' },
+  { group: '工作' },
+  { path: 'board', label: '全局看板' },
+  { path: 'projects', label: '项目' },
+  { path: 'work-types', label: '事项类型' },
+  { path: 'trash', label: '回收站' },
+  { path: 'import', label: '导入事项' },
+  { group: '团队内容' },
   { path: 'knowledge', label: '团队知识' },
   { path: 'experts', label: '团队专家' },
   { path: 'skills', label: '团队技能' },
+  { group: '系统' },
   { path: 'settings', label: '设置' },
   { path: 'audit', label: '操作记录' },
 ];
@@ -44,7 +58,7 @@ function App() {
   const notify = useToast();
   const [state, setState] = useState({ phase: 'loading' });
   const [path, go] = useRoute();
-  const [directory, setDirectory] = useState({ departments: [], users: [] });
+  const [directory, setDirectory] = useState({ departments: [], users: [], roles: [] });
 
   const load = useCallback(async () => {
     try {
@@ -64,10 +78,10 @@ function App() {
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  // 部门和成员名单在好几页都要用（选可见范围、选部门），放在一处读。
+  // 部门、成员和角色名单在好几页都要用（选可见范围、选部门、选角色），放在一处读。
   const refreshDirectory = useCallback(async () => {
-    const [departments, users] = await Promise.all([api('GET', '/admin/departments'), api('GET', '/admin/users')]);
-    setDirectory({ departments: departments.departments, users: users.users });
+    const [departments, users, roles] = await Promise.all([api('GET', '/admin/departments'), api('GET', '/admin/users'), api('GET', '/admin/roles')]);
+    setDirectory({ departments: departments.departments, users: users.users, roles: roles.roles });
   }, []);
   useEffect(() => {
     if (state.phase === 'ready') refreshDirectory().catch(error => notify(error.message, { kind: 'error' }));
@@ -96,6 +110,12 @@ function App() {
   const [section, ...rest] = path.split('/');
   let page;
   if (section === 'members') page = <MembersPage />;
+  else if (section === 'roles') page = <RolesPage />;
+  else if (section === 'board') page = <BoardPage />;
+  else if (section === 'projects') page = <ProjectsPage />;
+  else if (section === 'work-types') page = <WorkTypesPage />;
+  else if (section === 'trash') page = <TrashPage />;
+  else if (section === 'import') page = <ImportPage />;
   else if (section === 'knowledge') page = <ContentPage kind="knowledge" />;
   else if (section === 'experts') page = <ContentPage kind="expert" />;
   else if (section === 'skills') page = <ContentPage kind="skill" />;
@@ -114,7 +134,7 @@ function App() {
             <div><strong>鲸翼企业版</strong><span className="muted">{state.hello.orgName}</span></div>
           </div>
           <div className="nav-list">
-            {NAV.map(item => (
+            {NAV.map(item => item.group ? <span key={item.group} className="nav-group">{item.group}</span> : (
               <a key={item.path} href={'/admin/' + item.path} className={active === item.path ? 'active' : ''} aria-current={active === item.path ? 'page' : undefined}
                 onClick={event => { event.preventDefault(); go(item.path); }}>{item.label}</a>
             ))}

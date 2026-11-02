@@ -159,6 +159,38 @@ export function Field({ label, hint, children, group }) {
 
 export function Empty({ children }) { return <p className="empty muted">{children}</p>; }
 
+/** 选几个人：能搜，勾选。部门负责人、项目成员都用它。 */
+export function PeoplePicker({ label, hint, users, value, onChange, departmentName = () => null }) {
+  const [query, setQuery] = useState('');
+  const chosen = new Set(value);
+  const text = query.trim().toLowerCase();
+  const shown = users.filter(user => !text || `${user.displayName} ${user.username} ${departmentName(user.departmentId) ?? ''}`.toLowerCase().includes(text));
+  return (
+    <Field group label={label} hint={hint}>
+      <input type="search" placeholder="找名字、登录名或部门" value={query} onChange={event => setQuery(event.target.value)} aria-label={`${label}：找人`} />
+      <div className="people-picker">
+        {shown.map(user => (
+          <label key={user.id} className="check">
+            <input type="checkbox" checked={chosen.has(user.id)} onChange={() => onChange(chosen.has(user.id) ? value.filter(id => id !== user.id) : [...value, user.id])} />
+            <span>{user.displayName}</span><span className="muted small">{user.username}{departmentName(user.departmentId) ? ` · ${departmentName(user.departmentId)}` : ''}</span>
+          </label>
+        ))}
+        {!shown.length && <span className="muted small">没有符合的人。</span>}
+      </div>
+      {value.length > 0 && <span className="field-hint">已选 {value.length} 人：{value.map(id => users.find(user => user.id === id)?.displayName ?? id).join('、')}</span>}
+    </Field>
+  );
+}
+
+/** 下载一段文字成文件（导出的表格用）。 */
+export function downloadText(text, name, type = 'text/csv;charset=utf-8') {
+  const url = URL.createObjectURL(new Blob([text], { type }));
+  const link = document.createElement('a');
+  link.href = url; link.download = name;
+  document.body.appendChild(link); link.click(); link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 export const formatTime = value => {
   if (!value) return '—';
   const date = new Date(value);

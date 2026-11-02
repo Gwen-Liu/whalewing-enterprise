@@ -1,4 +1,5 @@
 import Fastify from 'fastify';
+import { z } from 'zod';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
 import { readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
@@ -17,7 +18,10 @@ const ADMIN_COOKIE = 'wwe_admin';
 const ADMIN_HEADER = 'x-whalewing-admin';
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml',
   '.png': 'image/png', '.ico': 'image/x-icon', '.json': 'application/json; charset=utf-8', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8' };
-const PAGE_CSP = "default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
+// 接口校验没写专门说明的地方，用 zod 自带的中文说明，不把英文报错给人看。只在服务端进程里设，员工端用的是 DSH 自带的 zod，不动它。
+z.config(z.locales.zhCN());
+
+const PAGE_CSP ="default-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'";
 
 /** 校验请求；不合格时把第一条原因说给人听。 */
 export function parse(schema, value) {

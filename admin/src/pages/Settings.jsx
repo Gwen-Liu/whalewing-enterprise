@@ -10,7 +10,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     call('GET', '/admin/settings').then(data => {
-      const value = { orgName: data.orgName, publicUrl: data.publicUrl ?? '', offlineDays: data.offlineDays, inviteDays: data.inviteDays };
+      const value = { orgName: data.orgName, publicUrl: data.publicUrl ?? '', offlineDays: data.offlineDays, inviteDays: data.inviteDays, workVisibility: data.workVisibility, timeZone: data.timeZone };
       setSaved(value); setForm(value);
     }).catch(error => notify(error.message, { kind: 'error' }));
   }, [call, notify]);
@@ -21,8 +21,8 @@ export function SettingsPage() {
     event.preventDefault();
     setBusy(true);
     try {
-      const data = await call('PATCH', '/admin/settings', { orgName: form.orgName.trim(), publicUrl: form.publicUrl.trim() || null, offlineDays: Number(form.offlineDays), inviteDays: Number(form.inviteDays) });
-      const value = { orgName: data.orgName, publicUrl: data.publicUrl ?? '', offlineDays: data.offlineDays, inviteDays: data.inviteDays };
+      const data = await call('PATCH', '/admin/settings', { orgName: form.orgName.trim(), publicUrl: form.publicUrl.trim() || null, offlineDays: Number(form.offlineDays), inviteDays: Number(form.inviteDays), workVisibility: form.workVisibility, timeZone: form.timeZone.trim() });
+      const value = { orgName: data.orgName, publicUrl: data.publicUrl ?? '', offlineDays: data.offlineDays, inviteDays: data.inviteDays, workVisibility: data.workVisibility, timeZone: data.timeZone };
       setSaved(value); setForm(value);
       notify('已保存修改');
       if (value.orgName !== saved.orgName) reload();
@@ -41,7 +41,7 @@ export function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="设置" summary="企业名称、员工连接用的地址，以及离线和邀请的期限。" />
+      <PageHeader title="设置" summary="企业名称、员工连接用的地址、离线和邀请的期限，以及事项默认谁能看。" />
       <form className="card section form" onSubmit={save}>
         <h2>企业</h2>
         <Field label="企业名称" hint="员工加入时看到“你将加入：企业名称”。"><input value={form.orgName} maxLength={60} onChange={event => setForm({ ...form, orgName: event.target.value })} /></Field>
@@ -54,6 +54,14 @@ export function SettingsPage() {
           </Field>
           <Field label="邀请默认有效天数"><input type="number" min={1} max={90} value={form.inviteDays} onChange={event => setForm({ ...form, inviteDays: event.target.value })} /></Field>
         </div>
+        <h2>事项</h2>
+        <Field group label="事项默认谁能看" hint="能改的范围不受影响：改别人的事项仍然要在自己的数据范围里，并且有对应的权限点。">
+          <label className="check"><input type="radio" name="visibility" checked={form.workVisibility === 'scope'} onChange={() => setForm({ ...form, workVisibility: 'scope' })} />
+            <span className="check-hint"><span>数据范围里的 + 自己参与的 + 同项目的</span><span className="muted small">推荐。组长看自己组的，组员看自己负责、协作、在等自己的，以及同项目的事项</span></span></label>
+          <label className="check"><input type="radio" name="visibility" checked={form.workVisibility === 'all'} onChange={() => setForm({ ...form, workVisibility: 'all' })} />
+            <span className="check-hint"><span>全员可见</span><span className="muted small">适合人少、讲透明的团队：每个人都能看所有事项</span></span></label>
+        </Field>
+        <Field label="时区" hint="决定“今天”“本周”、逾期和事项编号里的年月。默认北京时间 Asia/Shanghai。"><input value={form.timeZone} maxLength={64} onChange={event => setForm({ ...form, timeZone: event.target.value })} /></Field>
         <div className="row end">{dirty && <span className="tag tag-warn">有未保存的修改</span>}<button type="submit" className="primary" disabled={busy || !dirty}>保存修改</button></div>
       </form>
       <form className="card section form" onSubmit={changePassword}>

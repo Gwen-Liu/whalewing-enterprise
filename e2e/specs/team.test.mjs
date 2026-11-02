@@ -339,7 +339,7 @@ test('TEAM-15 我的工作：先处理里有逾期和等我答复；新建事项
     assert.match(await textOf(view), /只看“逾期”/);
     await view.getByRole('listitem').filter({ hasText: '登录页改版' }).getByRole('button', { name: '更新' }).click();
     const update = drawer(page, `${late.number} 登录页改版`);
-    await wwField(update, '状态').selectOption({ label: '已完成（已完成）' });
+    await wwField(update, '状态').selectOption({ label: '已完成' });
     await wwField(update, '写一句动态（可选）').fill('已经上线');
     await update.locator('footer').getByRole('button', { name: '保存修改' }).click();
     await toast(page, `已保存 ${late.number}`, 'success').waitFor();
@@ -380,7 +380,7 @@ test('TEAM-16 团队看板：当上研发部负责人后出现；点人看他的
 });
 
 // 企业管理设计§项目 和 §我的工作“交给专家”：加号卡片建项目；项目里建事项；事项交给专家时带着事项打开小鲸。
-test('TEAM-17 项目：加号卡片建项目、在项目里建事项；事项菜单“交给专家”打开小鲸', async t => {
+test('TEAM-17 项目：加号卡片建项目、在项目里建事项；引用团队笔记；事项菜单“交给专家”带着事项和笔记打开小鲸', async t => {
   await withPage(browser, t, async session => {
     const { page } = session;
     await open(session);
@@ -408,9 +408,18 @@ test('TEAM-17 项目：加号卡片建项目、在项目里建事项；事项菜
     await teamPage(page, '我的工作');
     const row = view.getByRole('listitem').filter({ hasText: '门户首页' });
     const number = (await textOf(row)).match(/RW-\d{6}-\d{3}/)[0];
+    // 引用资料：从本机同步的团队知识里挑一篇；交给专家时这篇一起交给小鲸。
+    await row.getByRole('button', { name: '更新' }).click();
+    const edit = drawer(page, number + ' 门户首页');
+    await edit.getByRole('combobox', { name: '加一篇团队笔记' }).selectOption({ label: '研发手册 / 评审/代码评审' });
+    await edit.locator('footer').getByRole('button', { name: '保存修改' }).click();
+    await toast(page, '已保存 ' + number, 'success').waitFor();
+    assert.match(await textOf(edit), /引用资料 研发手册 \/ 评审\/代码评审/);
+    await page.keyboard.press('Escape');
     const menu = await openMenu(page, number + '的操作');
     await menu.getByRole('button', { name: '交给专家' }).click();
     await assistantDraft(page, number);
+    await page.waitForFunction(() => document.querySelector('aside.ww-assistant .ww-assistant-context > summary')?.textContent === '当前资料 · 1');
     clean(session);
   });
 });

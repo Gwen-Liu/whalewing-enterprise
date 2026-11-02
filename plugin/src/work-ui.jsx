@@ -28,6 +28,12 @@ export function dueText(item, today, weekEnd) {
 
 const can = (context, permission) => Boolean(context?.access?.admin || context?.access?.permissions?.includes(permission));
 
+/** 列表里的事项不带引用资料，先读一遍详情再交给专家。 */
+async function handToExpertById(workbench, api, status, item) {
+  try { handToExpert(workbench, status, await api.work('get', { id: item.id })); }
+  catch (error) { workbench.notify(error.message, { kind: 'error' }); }
+}
+
 /** 带上事项去找小鲸：由小鲸处理，或转交给合适的专家。引用的团队笔记一起带上（本机缓存里有的才带）。 */
 export function handToExpert(workbench, status, item) {
   const cached = new Set((status.items ?? []).filter(entry => entry.kind === 'knowledge').flatMap(entry => entry.files.map(file => `${entry.slug}/${file.path}`)));
@@ -158,7 +164,54 @@ function useNames(directory) {
 }
 
 const pick = (source, keys) => Object.fromEntries(keys.map(key => [key, source[key]]));
-const EDIT_KEYS = ['title', 'status', 'priority', 'startDate', 'dueDate', 'assigneeId', 'projectId', 'progress', 'waitingOn', 'waitingNote', 'content', 'checklist', 'collaboratorIds'];
+const EDIT_KEYS = ['title', 'status', 'priority', 'startDate', 'dueDate', 'assigneeId', 'projectId', 'progress', 'waitingOn', 'waitingNote', 'content', 'checklist', 'collaboratorIds', 'fields', 'refs'];
+
+/** 类型自己的专属字段：单选、文本、日期。 */
+function TypeFields({ fields, value, onChange }) {
+  if (!fields?.length) return null;
+  const set = (key, next) => onChange({ ...value, [key]: next || null });
+  return (
+    <div className="ww-row" style={{ gap: 12, alignItems: 'end' }}>
+      {fields.map(field => (
+        <Field key={field.key} label={field.name}>
+          {field.kind === 'select' ? (
+            <select value={value[field.key] ?? ''} onChange={event => set(field.key, event.target.value)}>
+              <option value="">不填</option>
+              {field.options.map(option => <option key={option} value={option}>{option}</option>)}
+            </select>
+          ) : field.kind === 'date'
+            ? <input type="date" value={value[field.key] ?? ''} onChange={event => set(field.key, event.target.value)} />
+            : <input value={value[field.key] ?? ''} maxLength={500} onChange={event => set(field.key, event.target.value)} />}
+        </Field>
+      ))}
+    </div>
+  );
+}
+
+/** 引用资料：从本机已同步的团队知识里挑笔记。“交给专家”时这些笔记一起交给小鲸。 */
+function RefsPicker({ status, value, onChange }) {
+  const notes = (status.items ?? []).filter(entry => entry.kind === 'knowledge')
+    .flatMap(entry => entry.files.map(file => ({ slug: entry.slug, path: file.path, title: `${entry.title} / ${file.path.replace(/\.md$/i, '')}` })));
+  const key = ref => `${ref.slug}/${ref.path}`;
+  const chosen = new Set(value.map(key));
+  return (
+    <Group label="引用资料" hint="团队知识里的笔记；交给专家时一起带给小鲸">
+      {value.map(ref => (
+        <div key={key(ref)} className="ww-row" style={{ gap: 6, flexWrap: 'nowrap' }}>
+          <span style={{ flex: 1, overflowWrap: 'anywhere' }}>{ref.title ?? key(ref)}</span>
+          <button type="button" aria-label={`去掉引用 ${ref.title ?? ref.path}`} onClick={() => onChange(value.filter(entry => key(entry) !== key(ref)))}>去掉</button>
+        </div>
+      ))}
+      {notes.length > 0 && value.length < 20 && (
+        <select value="" aria-label="加一篇团队笔记" style={inputStyle} onChange={event => { const note = notes.find(entry => key(entry) === event.target.value); if (note) onChange([...value, note]); }}>
+          <option value="">＋ 加一篇团队笔记…</option>
+          {notes.filter(note => !chosen.has(key(note))).map(note => <option key={key(note)} value={key(note)}>{note.title}</option>)}
+        </select>
+      )}
+      {!notes.length && <span className="ww-muted" style={{ fontSize: 12 }}>企业还没给你开放团队知识。</span>}
+    </Group>
+  );
+}
 
 export function ItemDrawer({ workbench, api, run, status, directory, context, itemId, startEditing, onClose, onChanged, readOnly }) {
   const { Drawer, ConfirmDialog } = workbench.ui;
@@ -245,7 +298,7 @@ export function ItemDrawer({ workbench, api, run, status, directory, context, it
         <div style={{ display: 'grid', gap: 12 }}>
           {rights.edit && <Field label="标题"><input style={inputStyle} value={form.title} maxLength={120} onChange={event => setForm({ ...form, title: event.target.value })} /></Field>}
           {rights.edit && <Field label="状态"><select style={inputStyle} value={form.status} onChange={event => setForm({ ...form, status: event.target.value })}>
-            {statuses.map(entry => <option key={entry.key} value={entry.key}>{entry.name}（{CATEGORY_LABELS[entry.category]}）</option>)}
+            {statuses.map(entry => <option key={entry.key} value={entry.key}>{entry.name === CATEGORY_LABELS[entry.category] ? entry.name : `${entry.name}（${CATEGORY_LABELS[entry.category]}）`}</option>)}
           </select></Field>}
           {rights.edit && manualProgress && <Field label={`进度 ${form.progress}%`} hint="只有进行中、等待中的事项填进度；完成了直接把状态改成完成"><input type="range" min={0} max={100} step={5} value={form.progress} onChange={event => setForm({ ...form, progress: Number(event.target.value) })} /></Field>}
           {rights.edit && <ChecklistEditor value={form.checklist} onChange={checklist => setForm({ ...form, checklist })} />}
@@ -266,6 +319,8 @@ export function ItemDrawer({ workbench, api, run, status, directory, context, it
             <Field label="在等什么"><input value={form.waitingNote} maxLength={200} onChange={event => setForm({ ...form, waitingNote: event.target.value })} placeholder="一句话" /></Field>
           </div>}
           {(rights.edit || rights.assign) && <PeoplePicker label="协作人" hint="协作人能看这个事项、能写动态" users={users} value={form.collaboratorIds} onChange={collaboratorIds => setForm({ ...form, collaboratorIds })} />}
+          {rights.edit && <TypeFields fields={item.type?.fields} value={form.fields ?? {}} onChange={fields => setForm({ ...form, fields })} />}
+          {rights.edit && <RefsPicker status={status} value={form.refs ?? []} onChange={refs => setForm({ ...form, refs })} />}
           {rights.edit && <Field label="内容" hint="Markdown"><textarea rows={8} style={{ ...inputStyle, fontFamily: 'var(--dsw-alias-font-mono, monospace)' }} value={form.content} onChange={event => setForm({ ...form, content: event.target.value })} /></Field>}
           <Field label="写一句动态（可选）" hint="和这次修改一起记进动态"><textarea rows={2} style={inputStyle} value={comment} maxLength={2000} onChange={event => setComment(event.target.value)} /></Field>
         </div>
@@ -422,7 +477,7 @@ export function MyWorkPage({ workbench, api, run, status, context, directory, re
         {item.category !== 'done' && <button type="button" onClick={() => setDrawer({ type: 'item', id: item.id, edit: item.mine })}>{item.waitingMe && !item.mine ? '答复' : '更新'}</button>}
         <workbench.ui.ActionMenu label={`${item.number}的操作`} iconOnly>
           <button type="button" onClick={() => setDrawer({ type: 'item', id: item.id })}>查看详情</button>
-          <button type="button" onClick={() => handToExpert(workbench, status, item)}>交给专家</button>
+          <button type="button" onClick={() => handToExpertById(workbench, api, status, item)}>交给专家</button>
         </workbench.ui.ActionMenu>
       </span>} />
   );
