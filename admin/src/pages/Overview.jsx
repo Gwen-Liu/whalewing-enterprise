@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from 'react';
+import { assistantNames } from '@whalewing-enterprise/shared/protocol';
 import { useApp } from '../context.js';
 import { formatTime, PageHeader, useToast } from '../ui.jsx';
 
 export function OverviewPage() {
-  const { call, go } = useApp();
+  const { call, go, me } = useApp();
   const notify = useToast();
   const [data, setData] = useState(null);
   const load = useCallback(() => call('GET', '/admin/overview').then(setData).catch(error => notify(error.message, { kind: 'error', action: { label: '重试', run: load } })), [call, notify]);
@@ -15,7 +16,7 @@ export function OverviewPage() {
     { label: '最近 7 天连过', value: members.recentlySeen, note: '员工端或管理端用过的人', to: 'members' },
     { label: '知识空间', value: content.knowledge, note: '团队知识', to: 'knowledge' },
     { label: '团队专家', value: content.expert, note: '出现在员工的专家团队里', to: 'experts' },
-    { label: '团队技能', value: content.skill, note: '专家和小鲸都能调用', to: 'skills' },
+    { label: '团队技能', value: content.skill, note: `专家和${assistantNames(me.org.assistantName).short}都能调用`, to: 'skills' },
     { label: '部门', value: data.departments, note: '可以一层层往下建', to: 'members' },
   ];
   return (

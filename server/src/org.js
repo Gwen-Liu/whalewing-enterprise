@@ -34,6 +34,8 @@ export class Org {
       inviteDays: Number(this.meta('invite_days') ?? DEFAULTS.inviteDays),
       workVisibility: this.meta('work_visibility') ?? DEFAULTS.workVisibility,
       timeZone: this.meta('time_zone') ?? DEFAULTS.timeZone,
+      // 企业给小鲸助手起的名字；null 表示不改名。员工端同步后交给鲸翼个人版。
+      assistantName: this.meta('assistant_name'),
     };
   }
 
@@ -45,6 +47,7 @@ export class Org {
       if (input.inviteDays !== undefined) this.setMeta('invite_days', input.inviteDays);
       if (input.workVisibility !== undefined) this.setMeta('work_visibility', input.workVisibility);
       if (input.timeZone !== undefined) this.setMeta('time_zone', input.timeZone);
+      if (input.assistantName !== undefined) this.setMeta('assistant_name', input.assistantName);
       this.audit.record(actor, 'settings.update', '企业设置', input);
     });
     return this.settings();
@@ -171,7 +174,7 @@ export class Org {
     return {
       user: this.publicUser(user),
       department: department ? { id: department.id, name: department.name, path: this.departmentPath(department.id) } : null,
-      org: { name: settings.orgName ?? '', offlineDays: settings.offlineDays, workVisibility: settings.workVisibility, timeZone: settings.timeZone },
+      org: { name: settings.orgName ?? '', offlineDays: settings.offlineDays, workVisibility: settings.workVisibility, timeZone: settings.timeZone, assistantName: settings.assistantName },
       access: this.roles.access(user).describe(id => this.department(id)?.name),
     };
   }

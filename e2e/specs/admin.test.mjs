@@ -742,6 +742,40 @@ test('ADM-22 设置：事项默认谁能看改成全员可见；时区写错被�
   });
 });
 
+// 企业管理设计§助手改名、§管理端网页加什么-企业设置：管理员起名，去掉首尾空白保存；管理端里写着“小鲸”的说明跟着换；留空恢复。
+test('ADM-23 设置：助手名称起名后保存，概览和团队技能的说明跟着换；留空恢复“小鲸助手”', async t => {
+  await withPage(browser, t, async session => {
+    const { page } = session;
+    await login(page);
+    await go(page, '设置');
+    const name = field(page, '助手名称');
+    assert.equal(await name.inputValue(), '', '默认不改名');
+    assert.equal(await name.getAttribute('placeholder'), '小鲸助手');
+    assert.match(await textOf(page.locator('label.field').filter({ has: page.locator('.field-label', { hasText: /^助手名称$/ }) })), /留空就用「小鲸助手」.*最多 16 个字/);
+    await name.fill('  小司助手 ');
+    await page.getByRole('button', { name: '保存修改' }).first().click();
+    await toast(page, 'success', '已保存修改').waitFor();
+    assert.equal((await server.admin('GET', '/admin/settings')).assistantName, '小司助手', '去掉首尾空白');
+    assert.equal(await name.inputValue(), '小司助手');
+
+    await go(page, '概览');
+    await page.locator('.stat', { hasText: '团队技能' }).getByText('专家和小司助手都能调用').waitFor();
+    await go(page, '团队技能');
+    await page.getByText('专家和小司助手都能调用', { exact: false }).first().waitFor();
+
+    await go(page, '设置');
+    await field(page, '助手名称').fill('   ');
+    await page.getByRole('button', { name: '保存修改' }).first().click();
+    await toast(page, 'success', '已保存修改').waitFor();
+    assert.equal((await server.admin('GET', '/admin/settings')).assistantName, null, '留空就不改名');
+    await go(page, '概览');
+    await page.locator('.stat', { hasText: '团队技能' }).getByText('专家和小鲸都能调用').waitFor();
+    await go(page, '操作记录');
+    await page.locator('tbody tr', { hasText: '修改企业设置' }).first().waitFor();
+    clean(session);
+  });
+});
+
 // 设计§安全-操作记录：记谁改了成员、权限和团队内容；能按类型筛选；不记密码。
 test('ADM-12 操作记录：有前面的操作，按类型筛选，不含密码', async t => {
   await withPage(browser, t, async session => {

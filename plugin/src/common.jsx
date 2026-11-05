@@ -1,8 +1,12 @@
 // 员工端界面共用的小工具。组件和样式只用鲸翼工作台公开的 workbench.ui 和 ww-* 类，颜色只借 DSH 的变量。
 import * as React from 'react';
+import { assistantNames } from '@whalewing-enterprise/shared/protocol';
 import { input } from './contract.js';
 
 export const ROLE = { admin: '管理员', member: '成员' };
+
+/** 界面上怎么称呼小鲸：鲸翼里现在用的是企业起的名字就用它（全名，没有简称），否则是“小鲸助手”“小鲸”。 */
+export const assistantOf = status => assistantNames(status?.assistantName);
 
 export async function call(remote, raw, signal) {
   const value = input.parse(raw);

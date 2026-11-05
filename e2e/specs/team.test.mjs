@@ -63,6 +63,15 @@ const teamPage = async (page, name) => {
   await page.waitForFunction(label => [...document.querySelectorAll('div[aria-label="团队"] [role="tab"]')].some(button => button.textContent.trim() === label && button.getAttribute('aria-selected') === 'true'), name);
 };
 const assistantDraft = (page, text = 'team_work') => page.waitForFunction(value => document.querySelector('aside.ww-assistant [data-composer-input]')?.innerText.includes(value), text);
+/** 鲸翼的助手气泡写着“打开{助手名称}”，用它看鲸翼里小鲸现在叫什么。 */
+const assistantBubble = (page, name) => page.getByRole('button', { name: `打开${name}`, exact: true });
+const nameAssistant = assistantName => server.admin('PATCH', '/admin/settings', { assistantName });
+/** 在「团队」页签点刷新（立即同步），等提示“团队内容已是最新”。 */
+const syncTeam = async page => {
+  await openTab(page, '团队');
+  await refresh(page);
+  await toast(page, '团队内容已是最新', 'success').last().waitFor();
+};
 // 北京时间的日期，往前往后挪几天。
 const isoDay = offset => new Date(Date.now() + 8 * 3600_000 + offset * 86_400_000).toISOString().slice(0, 10);
 
@@ -424,6 +433,62 @@ test('TEAM-17 项目：加号卡片建项目、在项目里建事项；引用团
   });
 });
 
+// 企业管理设计§助手改名：管理员在企业设置里起名，员工端同步后鲸翼里的小鲸换成这个名字；改名跟着换；清空后恢复“小鲸助手”。
+test('TEAM-18 助手改名：同步后鲸翼和团队页签里的小鲸都换成企业起的名字；改名跟着换；清空后恢复', async t => {
+  await withPage(browser, t, async session => {
+    const { page } = session;
+    await open(session);
+    await assistantBubble(page, '小鲸助手').waitFor();
+
+    await nameAssistant('小司助手');
+    await syncTeam(page);
+    await assistantBubble(page, '小司助手').waitFor();
+    await teamPage(page, '团队资料');
+    await teamView(page).getByText('助手名称“小司助手”由企业统一设定').waitFor();
+    assert.match(await textOf(teamView(page)), /专家和小司助手都能调用/);
+    await teamPage(page, '团队看板');
+    await teamView(page).getByRole('button', { name: '让小司助手分析' }).waitFor();
+
+    // 专家团队里小鲸的卡片换了名字；编辑时名字只读，写明由「团队」统一设定。
+    await openTab(page, '专家团队');
+    await refresh(page);
+    const menu = await openMenu(page, '小司助手 · 专家操作');
+    await menu.getByRole('button', { name: '编辑专家' }).click();
+    const editor = drawer(page, '编辑专家');
+    assert.match(await textOf(editor), /名字由「团队」统一设定/);
+    const name = editor.locator('label', { hasText: '名字由「团队」统一设定' }).locator('input');
+    assert.equal(await name.inputValue(), '小司助手');
+    assert.equal(await name.isDisabled(), true, '名字框只读');
+    await page.keyboard.press('Escape');
+    await editor.waitFor({ state: 'detached' });
+
+    // 打开助手，面板标题也是新名字。
+    await assistantBubble(page, '小司助手').click();
+    await page.locator('aside.ww-assistant header h2', { hasText: '小司助手' }).waitFor();
+    await page.getByRole('button', { name: '收起助手' }).click();
+
+    await nameAssistant('小航助手');
+    await syncTeam(page);
+    await assistantBubble(page, '小航助手').waitFor();
+    await teamPage(page, '团队资料');
+    await teamView(page).getByText('助手名称“小航助手”由企业统一设定').waitFor();
+
+    await nameAssistant(null);
+    await syncTeam(page);
+    await assistantBubble(page, '小鲸助手').waitFor();
+    await teamPage(page, '团队看板');
+    await teamView(page).getByRole('button', { name: '让小鲸分析' }).waitFor();
+    await teamPage(page, '团队资料');
+    assert.ok(!/助手名称/.test(await textOf(teamView(page))), '清空后不再写助手名称');
+
+    // 后面离线、停用、退出几条接着核对名字。
+    await nameAssistant('小司助手');
+    await syncTeam(page);
+    await assistantBubble(page, '小司助手').waitFor();
+    clean(session);
+  });
+});
+
 // 设计§同步和本机缓存-离线：连不上时缓存照常用，说清原因；连上后恢复。
 test('TEAM-11 服务端连不上：提示原因、页头标离线，团队笔记照常能搜；恢复后自动好了', async t => {
   await withPage(browser, t, async session => {
@@ -443,6 +508,7 @@ test('TEAM-11 服务端连不上：提示原因、页头标离线，团队笔记
       assert.equal(await teamView(page).getByRole('button', { name: '＋ 新事项' }).count(), 0, '缓存只能看，不能改');
       await searchKnowledge(page, '两人以上');
       await page.getByRole('button', { name: /研发手册 \/ 代码评审/ }).waitFor();
+      await assistantBubble(page, '小司助手').waitFor();
     } finally {
       await server.resume();
     }
@@ -463,7 +529,8 @@ test('TEAM-12 账号被停用：团队内容撤掉并说明原因；启用后用
     await open(session);
     await refresh(page);
     await page.waitForFunction(() => document.querySelector('div[aria-label="团队"] p')?.textContent.includes('登录已失效'));
-    assert.match(await textOf(teamView(page)), /登录已失效 .*本机的团队内容已经撤掉，你的个人知识、技能和会话都还在/);
+    assert.match(await textOf(teamView(page)), /登录已失效 .*本机的团队内容已经撤掉，助手恢复叫“小鲸助手”，你的个人知识、技能和会话都还在/);
+    await assistantBubble(page, '小鲸助手').waitFor();
     await openTab(page, '专家团队');
     await refresh(page);
     await page.waitForTimeout(800);
@@ -481,6 +548,7 @@ test('TEAM-12 账号被停用：团队内容撤掉并说明原因；启用后用
     await toast(page, `已加入“${ORG}”`, 'success').waitFor();
     await teamPage(page, '团队资料');
     await teamView(page).getByText('研发手册', { exact: true }).waitFor();
+    await assistantBubble(page, '小司助手').waitFor();
     clean(session);
   });
 });
@@ -494,9 +562,11 @@ test('TEAM-13 退出团队：居中确认后退出，专家、知识、技能里
     await teamView(page).getByRole('button', { name: '退出团队' }).click();
     const confirm = modal(page, '退出团队');
     assert.match(await textOf(confirm), /个人知识、个人技能和会话都不受影响/);
+    assert.match(await textOf(confirm), /助手恢复叫“小鲸助手”/);
     await confirm.locator('footer button', { hasText: /^\s*退出团队\s*$/ }).click();
     await toast(page, '已退出团队', 'success').waitFor();
     assert.equal(await textOf(summary(page)), '没有连接企业');
+    await assistantBubble(page, '小鲸助手').waitFor();
 
     await openTab(page, '专家团队');
     await refresh(page);

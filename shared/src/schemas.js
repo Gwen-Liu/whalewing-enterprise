@@ -13,6 +13,10 @@ export const username = z.string().trim().min(2, '登录名至少 2 个字符').
 export const displayName = singleLine(1, 40);
 export const password = z.string().min(8, '密码至少 8 位').max(128, '密码最多 128 位');
 export const orgName = singleLine(1, 60);
+// 助手名称的规则照鲸翼个人版 ctx.whalewing.assistant.registerName：去掉首尾空白后 1–16 个字，一行，不带换行和控制字符。
+// 个人版收到不合规的名字会拒收，所以服务端按同一条规则先拦下。
+export const assistantName = z.string().trim().min(1, '助手名称不能为空').max(LIMITS.assistantName, `助手名称最长 ${LIMITS.assistantName} 个字`)
+  .refine(value => !/[\p{Cc}\p{Zl}\p{Zp}]/u.test(value), '助手名称不能换行，也不能带控制字符');
 export const slug = z.string().regex(SLUG, '标识只能用小写字母、数字和短横线，最长 64 个字符');
 export const kind = z.enum(KINDS);
 export const role = z.enum(ROLES);
@@ -96,6 +100,8 @@ export const me = z.object({
     offlineDays: z.number().int().positive(),
     workVisibility: z.enum(WORK_VISIBILITY).optional(),
     timeZone: z.string().optional(),
+    // 企业起的助手名称，null 表示不改名。员工端不在这里校验：名字不合规只是不改名，不能让整次同步失败。
+    assistantName: z.string().nullable().optional(),
   }),
   access: workAccess.optional(),
 });
@@ -192,6 +198,8 @@ export const settingsUpdate = z.strictObject({
   inviteDays: z.number().int().min(1).max(90).optional(),
   workVisibility: z.enum(WORK_VISIBILITY).optional(),
   timeZone: z.string().trim().min(1).max(64).refine(isTimeZone, '时区要写成 Asia/Shanghai 这样的写法').optional(),
+  // null 表示不改名，员工的鲸翼里用“小鲸助手”。
+  assistantName: assistantName.nullable().optional(),
 });
 
 function isTimeZone(value) {

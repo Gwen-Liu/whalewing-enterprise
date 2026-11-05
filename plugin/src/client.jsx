@@ -3,7 +3,7 @@
 import * as React from 'react';
 import { featureId } from '../identity.js';
 import { contract, namespace } from './contract.js';
-import { ago, call, Field, inputStyle, ROLE } from './common.jsx';
+import { ago, assistantOf, call, Field, inputStyle, ROLE } from './common.jsx';
 import { BoardPage, MyWorkPage, ProjectsPage } from './work-ui.jsx';
 
 const { useCallback, useEffect, useMemo, useRef, useState } = React;
@@ -39,7 +39,7 @@ function ConnectView({ status, run, workbench }) {
       {status.state === 'expired' && (
         <section className="ww-section" style={{ borderColor: 'var(--dsw-alias-status-danger, #d1242f)' }}>
           <strong>登录已失效</strong>
-          <p className="ww-muted">{status.lastError?.message ?? '请重新登录'}。本机的团队内容已经撤掉，你的个人知识、技能和会话都还在。</p>
+          <p className="ww-muted">{status.lastError?.message ?? '请重新登录'}。本机的团队内容已经撤掉{status.me?.org?.assistantName ? `，助手恢复叫“${assistantOf(null).full}”` : ''}，你的个人知识、技能和会话都还在。</p>
         </section>
       )}
       <section className="ww-section" style={{ display: 'grid', gap: 12, maxWidth: 640 }}>
@@ -231,6 +231,8 @@ function LibraryView({ status, run, workbench }) {
           <button type="button" className="ww-danger" onClick={() => setLeaving(true)}>退出团队</button>
         </div>
         <span className="ww-muted">{me.org.name}{me.department ? ` · ${me.department.path.join(' / ')}` : ''} · 服务器 {status.server}{status.encrypted ? '' : '（内网，未加密）'}</span>
+        {status.assistantName && <span className="ww-muted">助手名称“{status.assistantName}”由企业统一设定</span>}
+        {status.assistantProblem && <span className="ww-muted">{status.assistantProblem}</span>}
         <span className="ww-muted" style={{ fontSize: 12 }}>企业看不到你的个人知识、个人技能和会话；只有你点“提交到团队”的笔记才会发给企业。</span>
       </section>
 
@@ -260,7 +262,7 @@ function LibraryView({ status, run, workbench }) {
         </div>
       ) : <p className="ww-muted">企业还没有给你开放团队专家。</p>}
 
-      <h3 style={{ margin: '18px 0 8px' }}>团队技能 <span className="ww-muted" style={{ fontWeight: 400 }}>· 在技能库的“扩展”一组里，专家和小鲸都能调用</span></h3>
+      <h3 style={{ margin: '18px 0 8px' }}>团队技能 <span className="ww-muted" style={{ fontWeight: 400 }}>· 在技能库的“扩展”一组里，专家和{assistantOf(status).short}都能调用</span></h3>
       {skills.length ? (
         <div className="ww-grid">
           {skills.map(skill => (
@@ -292,7 +294,7 @@ function LibraryView({ status, run, workbench }) {
       {drawer?.type === 'submit' && <SubmitDrawer workbench={workbench} run={run} spaces={maintainable} onClose={() => setDrawer(null)} />}
       {drawer?.type === 'skill' && <SkillDrawer workbench={workbench} run={run} skill={drawer.skill} file={drawer.file} onClose={() => setDrawer(null)} />}
       {leaving && <ConfirmDialog title="退出团队" danger confirmLabel="退出团队" cancelLabel="留在团队"
-        message={`退出“${me.org.name}”后，本机的团队知识、团队专家和团队技能都会撤掉，正在用团队专家的会话不能再继续。你的个人知识、个人技能和会话都不受影响。以后可以用账号重新登录。`}
+        message={`退出“${me.org.name}”后，本机的团队知识、团队专家和团队技能都会撤掉，正在用团队专家的会话不能再继续。${status.assistantName ? `助手恢复叫“${assistantOf(null).full}”。` : ''}你的个人知识、个人技能和会话都不受影响。以后可以用账号重新登录。`}
         onConfirm={leave} onCancel={() => setLeaving(false)} />}
     </>
   );
@@ -339,7 +341,7 @@ function TeamPages({ status, run, workbench, api, reloadKey }) {
         <section className="ww-section">
           <strong>{status.hidden ? '离线太久，团队内容先收起来了' : '暂时连不上企业服务端'}</strong>
           <p className="ww-muted">{status.lastError?.message}。{status.hidden
-            ? `超过企业规定的 ${status.offlineDays} 天没连上，团队内容已从本机撤掉，连上后会自动恢复。`
+            ? `超过企业规定的 ${status.offlineDays} 天没连上，团队内容已从本机撤掉${status.me?.org?.assistantName ? `，助手先恢复叫“${assistantOf(null).full}”` : ''}，连上后会自动恢复。`
             : `上次同步在 ${ago(status.lastOkAt)}，团队资料照常能用；“我的工作”显示上次同步的缓存，不能改。超过 ${status.offlineDays} 天还连不上会先收起来。`}</p>
         </section>
       )}

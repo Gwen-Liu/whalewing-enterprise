@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { parseExpertTemplate, renderExpertTemplate } from '@whalewing-enterprise/shared/expert';
+import { assistantNames } from '@whalewing-enterprise/shared/protocol';
 import { filePath, readItemFile } from '../api.js';
 import { useApp } from '../context.js';
 import { ActionMenu, AddCard, ConfirmDialog, Drawer, Empty, Field, formatBytes, formatTime, PageHeader, useToast } from '../ui.jsx';
@@ -11,7 +12,7 @@ const KIND = {
   expert: { title: '团队专家', unit: '专家', add: '新建团队专家', route: 'experts',
     summary: '团队维护的专家出现在员工的“专家团队”里，标“团队”。格式和鲸翼个人版的专家模板一样。' },
   skill: { title: '团队技能', unit: '技能', add: '新建团队技能', route: 'skills',
-    summary: '团队技能出现在员工的技能库里，专家和小鲸都能调用。一个技能是一个带 SKILL.md 的目录。' },
+    summary: '团队技能出现在员工的技能库里，专家和{assistant}都能调用。一个技能是一个带 SKILL.md 的目录。' },
 };
 
 // ---------- 可见范围和维护人 ----------
@@ -106,7 +107,7 @@ function ItemDrawer({ kind, item, busy, onClose, onSubmit }) {
 // ---------- 内容列表页 ----------
 
 export function ContentPage({ kind }) {
-  const { call, go } = useApp();
+  const { call, go, me } = useApp();
   const notify = useToast();
   const accessText = useAccessText();
   const [items, setItems] = useState(null);
@@ -136,7 +137,7 @@ export function ContentPage({ kind }) {
 
   return (
     <>
-      <PageHeader title={meta.title} summary={items ? `${items.length} 个${meta.unit} · ${meta.summary}` : '正在读取…'} />
+      <PageHeader title={meta.title} summary={items ? `${items.length} 个${meta.unit} · ${meta.summary.replace('{assistant}', assistantNames(me.org.assistantName).short)}` : '正在读取…'} />
       {items && (
         <div className="grid cards">
           {items.map(item => (

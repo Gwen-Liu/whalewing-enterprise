@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { isPrivateAddress, normalizeContentPath, parseExpertTemplate, parseInviteLink, parseServerAddress, renderExpertTemplate, schemas } from '../src/index.js';
+import { assistantNames, isPrivateAddress, normalizeContentPath, parseExpertTemplate, parseInviteLink, parseServerAddress, renderExpertTemplate, schemas } from '../src/index.js';
 
 test('内网地址：10、172.16～31、192.168、本机和 IPv6 内网段', () => {
   for (const ip of ['10.0.0.1', '172.16.5.4', '172.31.255.255', '192.168.1.10', '127.0.0.1', '::1', 'fd12:3456::1', '::ffff:192.168.0.2']) assert.equal(isPrivateAddress(ip), true, ip);
@@ -47,4 +47,14 @@ test('接口定义：登录名和密码规则', () => {
   assert.equal(schemas.password.safeParse('1234567').success, false);
   assert.equal(schemas.publicUrl.safeParse('https://team.example.com').success, true);
   assert.equal(schemas.publicUrl.safeParse('team.example.com').success, false);
+});
+
+test('助手名称：和鲸翼个人版同一条规则；企业起的名字没有简称', () => {
+  const ok = value => schemas.assistantName.safeParse(value);
+  assert.equal(ok('  小司助手 ').data, '小司助手');
+  assert.equal(ok('Atlas 助手').success, true);
+  assert.equal(ok('一二三四五六七八九十一二三四五六').success, true);
+  for (const bad of ['', '  ', '一二三四五六七八九十一二三四五六七', '小司\r助手', '小司\u0000助手', '小司 助手', null]) assert.equal(ok(bad).success, false, JSON.stringify(bad));
+  assert.deepEqual(assistantNames(null), { full: '小鲸助手', short: '小鲸' });
+  assert.deepEqual(assistantNames('小司助手'), { full: '小司助手', short: '小司助手' });
 });

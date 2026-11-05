@@ -1,4 +1,4 @@
-// 员工端核心逻辑对着真实的服务端跑：加入、同步、权限变化、维护、停用、离线、退出。
+// 员工端核心逻辑对着真实的服务端跑：加入、同步、权限变化、维护、停用、离线、退出，以及企业起的助手名称。
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, realpathSync } from 'node:fs';
@@ -8,7 +8,7 @@ import path from 'node:path';
 import { createApp } from '../../server/src/app.js';
 import { Engine } from '../src/engine.js';
 import { inspectAddress } from '../src/net.js';
-import { PROTOCOL_VERSION } from '@whalewing-enterprise/shared';
+import { PROTOCOL_VERSION, schemas } from '@whalewing-enterprise/shared';
 
 const SETUP_CODE = '1111-2222';
 
@@ -29,6 +29,49 @@ function fakePersonal() {
     search: async query => { calls.push(['search', query]); return { notes: [{ path: '40-知识/周报写法.md', title: '周报写法' }, { path: '@team/x/y.md', title: '团队的' }], total: 2, truncated: false }; },
     read: async notePath => { calls.push(['read', notePath]); return { path: notePath, content: '# 周报写法\n\n先写结论，再写进展。', hash: 'personal' }; },
   };
+}
+
+/**
+ * 假的鲸翼个人版助手名称接口，照个人版 EXTENDING“Host：助手名称”：同一时间只认一个扩展，自己再登记也报冲突；
+ * 名字规则一样；撤销后再 set 报 FEATURE_CLOSED。name 是鲸翼里现在显示的企业名字，null 就是“小鲸助手”。
+ */
+function fakeAssistant() {
+  const fake = { name: null, entry: null, other: null, calls: [] };
+  const error = (code, message) => Object.assign(new Error(message), { code });
+  const check = raw => {
+    const parsed = schemas.assistantName.safeParse(raw);
+    if (!parsed.success) throw error('ASSISTANT_NAME_INPUT', '助手名称不合规');
+    return parsed.data;
+  };
+  fake.register = raw => {
+    const name = check(raw);
+    if (fake.other) throw error('ASSISTANT_NAME_CONFLICT', `助手名称已由「${fake.other.label}」设置，同一时间只认一个扩展`);
+    if (fake.entry) throw error('ASSISTANT_NAME_CONFLICT', '这个扩展已经设置过助手名称；要改名请调 set');
+    const entry = { closed: false };
+    fake.entry = entry;
+    fake.name = name;
+    fake.calls.push(['register', name]);
+    return {
+      set: raw => {
+        if (entry.closed) throw error('FEATURE_CLOSED', '助手名称已撤销，请重新打开扩展后再试');
+        const next = check(raw);
+        if (next === fake.name) return;
+        fake.name = next;
+        fake.calls.push(['set', next]);
+      },
+      dispose: () => {
+        if (entry.closed) return;
+        entry.closed = true;
+        fake.entry = null;
+        fake.name = fake.other?.name ?? null;
+        fake.calls.push(['dispose']);
+      },
+    };
+  };
+  // 模拟别的扩展先起了名、后来又撤掉。
+  fake.otherExtension = (label, name) => { fake.other = { label, name }; fake.name = name; };
+  fake.otherGone = () => { fake.other = null; if (!fake.entry) fake.name = null; };
+  return fake;
 }
 
 async function world(t) {
@@ -54,9 +97,11 @@ async function world(t) {
   const makeEngine = (name = 'a') => {
     // published 模拟 Host 每次收到变化就把专家列表推给鲸翼。
     const published = [];
+    const assistant = fakeAssistant();
     const engine = new Engine({ baseDir: path.join(dir, `client-${name}`), credentials: fakeCredentials(), credentialKey: `dsh-whalewing-enterprise/session-${name}`,
-      personal: fakePersonal(), version: '0.2.1-rc.5.1', now: () => clock, log: () => {}, onChange: () => published.push(engine.expertItems()) });
+      personal: fakePersonal(), assistant, version: '0.2.1-rc.5.1', now: () => clock, log: () => {}, onChange: () => published.push(engine.expertItems()) });
     engine.published = published;
+    engine.fakeAssistant = assistant;
     engines.push(engine);
     return engine;
   };
@@ -173,9 +218,11 @@ test('维护人在团队页签新建笔记、提交个人笔记；只发选中�
 test('管理员停用账号：下次同步本机团队内容撤掉、令牌删掉，状态变成登录已失效', async t => {
   const w = await world(t);
   const { link } = await seed(w);
+  await w.admin('PATCH', '/settings', { assistantName: '小司助手' });
   const engine = w.makeEngine();
   await engine.start();
   await engine.join({ address: link, username: 'zhang', displayName: '张三', password: 'zhang-pass-1' });
+  assert.equal(engine.fakeAssistant.name, '小司助手');
   const zhang = (await w.admin('GET', '/users')).json.users.find(user => user.username === 'zhang');
   await w.admin('PATCH', `/users/${zhang.id}`, { status: 'disabled' });
   const status = await engine.sync();
@@ -187,11 +234,14 @@ test('管理员停用账号：下次同步本机团队内容撤掉、令牌删�
   assert.deepEqual(await readdir(engine.skillsDir), []);
   assert.equal(engine.credentials.records.size, 0);
   assert.equal(status.server, w.origin, '留着服务器地址，方便重新登录');
+  assert.equal(engine.fakeAssistant.name, null, '登录失效后助手恢复叫“小鲸助手”');
+  assert.equal(status.assistantName, null);
 });
 
 test('连不上时缓存照常用；超过离线天数先撤掉，连上后恢复', async t => {
   const w = await world(t);
   const { link } = await seed(w);
+  await w.admin('PATCH', '/settings', { assistantName: '小司助手' });
   const engine = w.makeEngine();
   await engine.start();
   await engine.join({ address: link, username: 'zhang', displayName: '张三', password: 'zhang-pass-1' });
@@ -203,6 +253,7 @@ test('连不上时缓存照常用；超过离线天数先撤掉，连上后恢�
   assert.equal(status.state, 'offline');
   assert.equal(status.hidden, false);
   assert.equal((await engine.searchKnowledge('评审')).notes.length, 1, '离线时缓存照常能用');
+  assert.equal(engine.fakeAssistant.name, '小司助手', '暂时连不上时助手名称不变');
 
   w.tick(8 * 24 * 60 * 60 * 1000);
   await assert.rejects(engine.sync());
@@ -210,6 +261,7 @@ test('连不上时缓存照常用；超过离线天数先撤掉，连上后恢�
   assert.equal(status.hidden, true);
   assert.equal((await engine.searchKnowledge('评审')).notes.length, 0);
   assert.equal(engine.expertItems().length, 0);
+  assert.equal(engine.fakeAssistant.name, null, '离线太久、团队内容收起来时，助手也先恢复叫“小鲸助手”');
 
   // 同一个数据目录重新启动服务端，员工端自动恢复。
   const again = await createApp({ dataDir: path.join(w.dir, 'server'), version: 'test' });
@@ -219,6 +271,7 @@ test('连不上时缓存照常用；超过离线天数先撤掉，连上后恢�
     assert.equal(status.state, 'connected');
     assert.equal(status.hidden, false);
     assert.equal((await engine.searchKnowledge('评审')).notes.length, 1);
+    assert.equal(engine.fakeAssistant.name, '小司助手', '连上后换回企业起的名字');
   } finally {
     // 先关掉重启的服务端，临时目录才删得掉（Windows 上打开着的数据库文件删不了）。
     await again.app.close();
@@ -228,14 +281,18 @@ test('连不上时缓存照常用；超过离线天数先撤掉，连上后恢�
 test('退出团队：服务端作废令牌，本机团队内容和状态都删掉', async t => {
   const w = await world(t);
   const { link } = await seed(w);
+  await w.admin('PATCH', '/settings', { assistantName: '小司助手' });
   const engine = w.makeEngine();
   await engine.start();
   await engine.join({ address: link, username: 'zhang', displayName: '张三', password: 'zhang-pass-1' });
+  assert.equal(engine.status().assistantName, '小司助手');
   const token = [...engine.credentials.records.values()][0].payload.token;
   assert.equal(engine.published.at(-1).length, 1, '加入后推给鲸翼一位团队专家');
   const status = await engine.leave();
   assert.equal(status.state, 'disconnected');
   assert.deepEqual(engine.published.at(-1), [], '退出后推给鲸翼的专家列表是空的');
+  assert.equal(engine.fakeAssistant.name, null, '退出后助手恢复叫“小鲸助手”');
+  assert.equal(status.assistantName, null);
   assert.equal(engine.credentials.records.size, 0);
   assert.ok(!existsSync(engine.stateFile));
   assert.deepEqual(await readdir(engine.skillsDir), []);
@@ -248,6 +305,83 @@ test('退出团队：服务端作废令牌，本机团队内容和状态都删�
   await reopened.start();
   t.after(() => reopened.close());
   assert.equal(reopened.status().state, 'disconnected');
+});
+
+test('助手名称：加入后换上企业起的名字；改名用 set；清空后恢复“小鲸助手”；再起名重新登记', async t => {
+  const w = await world(t);
+  const { link } = await seed(w);
+  const engine = w.makeEngine();
+  const fake = engine.fakeAssistant;
+  await engine.start();
+  assert.equal(fake.name, null, '没连企业时不改名');
+
+  await w.admin('PATCH', '/settings', { assistantName: '小司助手' });
+  let status = await engine.join({ address: link, username: 'zhang', displayName: '张三', password: 'zhang-pass-1' });
+  assert.equal(fake.name, '小司助手');
+  assert.deepEqual([status.assistantName, status.assistantProblem], ['小司助手', null]);
+
+  await w.admin('PATCH', '/settings', { assistantName: '小航助手' });
+  status = await engine.sync();
+  assert.equal(fake.name, '小航助手');
+  assert.deepEqual(fake.calls.at(-1), ['set', '小航助手'], '改名用 set，不重新登记');
+  assert.equal(status.assistantName, '小航助手');
+  const calls = fake.calls.length;
+  await engine.sync();
+  assert.equal(fake.calls.length, calls, '名字没变时不再调鲸翼');
+
+  await w.admin('PATCH', '/settings', { assistantName: null });
+  status = await engine.sync();
+  assert.equal(fake.name, null, '清空后恢复“小鲸助手”');
+  assert.deepEqual(fake.calls.at(-1), ['dispose']);
+  assert.equal(status.assistantName, null);
+
+  await w.admin('PATCH', '/settings', { assistantName: '小司助手' });
+  await engine.sync();
+  assert.equal(fake.name, '小司助手');
+  assert.deepEqual(fake.calls.map(call => call[0]), ['register', 'set', 'dispose', 'register']);
+});
+
+test('助手名称：重新打开 DSH 时先按本机缓存换上，不等同步；连不上也照样用', async t => {
+  const w = await world(t);
+  const { link } = await seed(w);
+  await w.admin('PATCH', '/settings', { assistantName: '小司助手' });
+  const engine = w.makeEngine();
+  await engine.start();
+  await engine.join({ address: link, username: 'zhang', displayName: '张三', password: 'zhang-pass-1' });
+  engine.close();
+  await w.server.app.close();
+
+  const assistant = fakeAssistant();
+  const reopened = new Engine({ baseDir: engine.baseDir, credentials: engine.credentials, credentialKey: engine.credentialKey, personal: fakePersonal(), assistant, log: () => {} });
+  t.after(() => reopened.close());
+  await reopened.start();
+  assert.equal(assistant.name, '小司助手', '读完本机状态就换上');
+  await assert.rejects(reopened.sync(), error => error.code === 'NETWORK');
+  assert.equal(assistant.name, '小司助手');
+  assert.deepEqual(assistant.calls, [['register', '小司助手']]);
+});
+
+test('助手名称：别的扩展已经起了名时不硬改，写明原因；那个扩展撤掉后下次同步换上', async t => {
+  const w = await world(t);
+  const { link } = await seed(w);
+  await w.admin('PATCH', '/settings', { assistantName: '小司助手' });
+  const logs = [];
+  const assistant = fakeAssistant();
+  assistant.otherExtension('别的扩展', '另一个助手');
+  const engine = new Engine({ baseDir: path.join(w.dir, 'client-conflict'), credentials: fakeCredentials(), credentialKey: 'k-conflict', personal: fakePersonal(), assistant, log: message => logs.push(message) });
+  t.after(() => engine.close());
+  await engine.start();
+  let status = await engine.join({ address: link, username: 'zhang', displayName: '张三', password: 'zhang-pass-1' });
+  assert.equal(assistant.name, '另一个助手', '不抢别的扩展起的名字');
+  assert.equal(status.assistantName, null, '界面上的文字仍按“小鲸助手”写');
+  assert.match(status.assistantProblem, /企业设定的助手名称“小司助手”没换上：助手名称已由「别的扩展」设置.*关掉起名的那个扩展/);
+  await engine.sync();
+  assert.equal(logs.filter(message => message.includes('没换上')).length, 1, '同样的原因只记一次日志');
+
+  assistant.otherGone();
+  status = await engine.sync();
+  assert.equal(assistant.name, '小司助手');
+  assert.deepEqual([status.assistantName, status.assistantProblem], ['小司助手', null]);
 });
 
 test('加密规则：外网地址只能 https；内网地址可以 http 并标明没加密', async () => {

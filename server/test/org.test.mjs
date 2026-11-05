@@ -120,6 +120,54 @@ test('邀请页会转义企业名称，防止被插入网页代码', async t => 
   assert.ok(page.body.includes('&lt;script&gt;'));
 });
 
+test('助手名称：只有管理员能改；规则和鲸翼个人版一样；员工登录、读自己、同步都拿得到；清空后不改名', async t => {
+  const s = await server(t);
+  const settings = body => s.request('PATCH', '/api/v1/admin/settings', { cookie: s.adminCookie, body });
+  assert.equal((await s.request('GET', '/api/v1/admin/settings', { cookie: s.adminCookie })).json.assistantName, null, '默认不改名');
+  const zhang = await member(s, { username: 'zhang' });
+  const orgOf = async () => (await s.request('GET', '/api/v1/me', { token: zhang.token })).json.org;
+  assert.equal((await orgOf()).assistantName, null);
+
+  // 起名：去掉首尾空白；正好 16 个字可以。
+  const saved = await settings({ assistantName: '  小司助手 ' });
+  assert.equal(saved.json.assistantName, '小司助手');
+  assert.equal((await orgOf()).assistantName, '小司助手', '员工读自己时拿得到');
+  const synced = await s.request('GET', '/api/v1/sync', { token: zhang.token });
+  assert.equal(synced.json.me.org.assistantName, '小司助手', '同步时拿得到');
+  const login = await s.request('POST', '/api/v1/auth/login', { body: { username: 'zhang', password: 'member-pass-1', client: 'plugin' } });
+  assert.equal(login.json.me.org.assistantName, '小司助手', '登录时拿得到');
+  assert.equal((await settings({ assistantName: '一二三四五六七八九十一二三四五六' })).json.assistantName, '一二三四五六七八九十一二三四五六');
+
+  // 不合规的拒收，原来的名字不变。
+  for (const bad of ['', '   ', '一二三四五六七八九十一二三四五六七', '小司\n助手', '小司\t助手', '小司 助手', 42]) {
+    const rejected = await settings({ assistantName: bad });
+    assert.equal(rejected.json.error?.code, 'INVALID_INPUT', JSON.stringify(bad));
+  }
+  assert.equal((await orgOf()).assistantName, '一二三四五六七八九十一二三四五六');
+
+  // 改名后同步的 ETag 跟着变，员工端下次同步就拿到新名字；不带这个字段时不动。
+  const before = (await s.request('GET', '/api/v1/sync', { token: zhang.token })).headers.etag;
+  await settings({ assistantName: '小航助手' });
+  const after = await s.request('GET', '/api/v1/sync', { token: zhang.token, headers: { 'if-none-match': before } });
+  assert.equal(after.status, 200);
+  assert.equal(after.json.me.org.assistantName, '小航助手');
+  await settings({ offlineDays: 5 });
+  assert.equal((await orgOf()).assistantName, '小航助手');
+
+  // 只有管理员能改：员工端令牌（哪怕是管理员在员工端登录）调不了管理接口。
+  assert.equal((await s.request('PATCH', '/api/v1/admin/settings', { token: zhang.token, body: { assistantName: '我的助手' } })).status, 401);
+  const adminPlugin = await s.request('POST', '/api/v1/auth/login', { body: { username: OWNER.username, password: OWNER.password, client: 'plugin' } });
+  assert.equal(adminPlugin.json.me.org.assistantName, '小航助手', '管理员在员工端也读得到');
+  assert.equal((await s.request('PATCH', '/api/v1/admin/settings', { token: adminPlugin.json.token, body: { assistantName: '我的助手' } })).status, 401);
+  assert.equal((await orgOf()).assistantName, '小航助手');
+
+  // 清空：员工端拿到 null，鲸翼恢复“小鲸助手”。
+  assert.equal((await settings({ assistantName: null })).json.assistantName, null);
+  assert.equal((await orgOf()).assistantName, null);
+  const { entries } = (await s.request('GET', '/api/v1/admin/audit?action=settings', { cookie: s.adminCookie })).json;
+  assert.ok(entries.some(entry => entry.action === 'settings.update' && entry.detail?.assistantName === '小航助手'), '改名记进操作记录');
+});
+
 test('部门：不能移到自己的下级下面；有成员时不能删', async t => {
   const s = await server(t);
   const top = (await s.request('POST', '/api/v1/admin/departments', { cookie: s.adminCookie, body: { name: '总部', parentId: null } })).json;

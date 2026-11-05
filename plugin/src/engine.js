@@ -59,7 +59,11 @@ async function removeEmptyDirs(dir, keep) {
 }
 
 export class Engine {
-  constructor({ baseDir, credentials, credentialKey, personal, version = '0.0.0', fetchImpl, lookup, now = () => Date.now(), onChange = () => {}, log = () => {} }) {
+  /**
+   * assistant：给小鲸改名用，Host 接到鲸翼个人版的 ctx.whalewing.assistant.registerName。
+   * 形如 { register(name) → { set(name), dispose() } }；不给就不改名（测试里用假的）。
+   */
+  constructor({ baseDir, credentials, credentialKey, personal, assistant = null, version = '0.0.0', fetchImpl, lookup, now = () => Date.now(), onChange = () => {}, log = () => {} }) {
     mkdirSync(path.join(baseDir, 'cache', 'skills'), { recursive: true });
     // 用真实路径：DSH 报上来的技能位置是真实路径，登记的目录要是写成短文件名（如 USERNA~1）或经过联接，
     // 鲸翼比较时对不上，会把团队技能当成不属于扩展而滤掉。
@@ -73,6 +77,9 @@ export class Engine {
     this.credentials = credentials;
     this.credentialKey = credentialKey;
     this.personal = personal;
+    this.assistant = assistant;
+    // 交给鲸翼的助手名称：登记后拿到的 { set, dispose }、鲸翼里现在用的名字、没改成时的原因。
+    this.naming = { handle: null, name: null, problem: null };
     this.version = version;
     this.net = { fetchImpl: fetchImpl ?? globalThis.fetch, lookup };
     this.now = now;
@@ -93,6 +100,8 @@ export class Engine {
     catch { this.state = null; }
     if (this.state && this.state.version !== 1) this.state = null;
     await this.rebuild();
+    // 先按本机缓存把团队专家和助手名称交给鲸翼，不等第一次同步（连不上时同步要等到超时）。
+    this.notify();
     if (this.state?.status === 'connected') this.sync().catch(error => this.log(`启动时同步失败：${error.message}`));
     this.timer = setInterval(() => {
       if (this.state?.status === 'connected') this.sync().catch(error => this.log(`定时同步失败：${error.message}`));
@@ -126,11 +135,14 @@ export class Engine {
 
   status() {
     const s = this.state;
-    if (!s) return { state: 'disconnected', version: this.version };
+    // assistantName 是鲸翼里现在用的企业名字（null 表示没改名，用“小鲸助手”），界面上的文字跟着它。
+    const assistant = { assistantName: this.naming.name, assistantProblem: this.naming.problem?.message ?? null };
+    if (!s) return { state: 'disconnected', version: this.version, ...assistant };
     const offline = s.status === 'connected' && s.lastError && OFFLINE_CODES.has(s.lastError.code);
     return {
       state: s.status === 'expired' ? 'expired' : offline ? 'offline' : 'connected',
       version: this.version,
+      ...assistant,
       server: s.server.origin,
       encrypted: s.server.encrypted,
       private: s.server.private,
@@ -319,7 +331,45 @@ export class Engine {
     return this.status();
   }
 
-  notify() { try { this.onChange(); } catch (error) { this.log(`更新团队内容时出错：${error.message}`); } }
+  notify() {
+    this.applyAssistantName();
+    try { this.onChange(); } catch (error) { this.log(`更新团队内容时出错：${error.message}`); }
+  }
+
+  // ---------- 助手名称 ----------
+
+  /**
+   * 企业起的助手名称，跟着团队内容走：连着企业（包括暂时连不上、用着缓存）时用；
+   * 退出团队、登录失效、离线太久收起团队内容时不用，鲸翼恢复“小鲸助手”。
+   */
+  wantedAssistantName() {
+    const s = this.state;
+    if (!s || s.status !== 'connected' || s.hidden) return null;
+    return typeof s.me?.org?.assistantName === 'string' && s.me.org.assistantName ? s.me.org.assistantName : null;
+  }
+
+  /** 把企业起的名字交给鲸翼：第一次登记，名字变了用 set，不要了 dispose。扩展关闭、卸载时鲸翼自己撤销。 */
+  applyAssistantName() {
+    if (!this.assistant || this.closed) return;
+    const naming = this.naming;
+    const wanted = this.wantedAssistantName();
+    if (wanted === naming.name && !naming.problem) return;
+    try {
+      if (!wanted) { naming.handle?.dispose(); naming.handle = null; }
+      else if (naming.handle) naming.handle.set(wanted);
+      else naming.handle = this.assistant.register(wanted);
+      naming.name = wanted;
+      naming.problem = null;
+    } catch (error) {
+      // 扩展正在关闭：鲸翼已经恢复了原来的名字，这里只把记录清掉。
+      if (error?.code === 'FEATURE_CLOSED') { naming.handle = null; naming.name = null; naming.problem = null; return; }
+      // 别的扩展已经起了名（同一时间只认一个），或者名字不合规：这次不改，下次同步再试；同样的原因只记一次日志。
+      const next = error?.code === 'ASSISTANT_NAME_CONFLICT' ? '在 DSH 插件页关掉起名的那个扩展后，下次同步会换上' : '请把这条告诉企业管理员';
+      const message = `企业设定的助手名称“${wanted}”没换上：${error?.message ?? '鲸翼没有说明原因'}。${next}`;
+      if (naming.problem?.message !== message) this.log(message);
+      naming.problem = { code: error?.code ?? 'ERROR', message };
+    }
+  }
 
   fileOnDisk(kind, slug, rel) {
     if (!SLUG.test(slug)) throw fail('INTEGRITY', `服务端发来的标识“${slug}”格式不对`);

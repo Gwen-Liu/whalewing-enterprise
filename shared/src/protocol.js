@@ -52,6 +52,11 @@ export const FIELD_KIND_LABELS = Object.freeze({ select: '单选', text: '文本
 // 事项默认谁能看：scope = 数据范围里的 + 自己参与的 + 同项目的；all = 全员可见。
 export const WORK_VISIBILITY = Object.freeze(['scope', 'all']);
 
+// 助手名称：鲸翼自带的助手默认叫“小鲸助手”，简称“小鲸”。企业在企业设置里起的名字没有简称，
+// 原来写“小鲸”的地方也用全名（和鲸翼个人版的规则一样）。
+export const DEFAULT_ASSISTANT_NAME = Object.freeze({ full: '小鲸助手', short: '小鲸' });
+export const assistantNames = custom => custom ? { full: custom, short: custom } : DEFAULT_ASSISTANT_NAME;
+
 export const LIMITS = Object.freeze({
   noteBytes: 1_000_000,
   expertBytes: 65_536,
@@ -63,6 +68,8 @@ export const LIMITS = Object.freeze({
   segmentChars: 120,
   title: 60,
   description: 240,
+  // 和鲸翼个人版 ctx.whalewing.assistant.registerName 的上限一样。
+  assistantName: 16,
 });
 
 export const WORK_LIMITS = Object.freeze({

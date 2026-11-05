@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'react';
+import { DEFAULT_ASSISTANT_NAME, LIMITS } from '@whalewing-enterprise/shared/protocol';
 import { useApp } from '../context.js';
 import { Field, PageHeader, useToast } from '../ui.jsx';
+
+const formOf = data => ({ orgName: data.orgName, publicUrl: data.publicUrl ?? '', offlineDays: data.offlineDays, inviteDays: data.inviteDays, workVisibility: data.workVisibility, timeZone: data.timeZone, assistantName: data.assistantName ?? '' });
 
 export function SettingsPage() {
   const { call, reload } = useApp();
@@ -10,7 +13,7 @@ export function SettingsPage() {
 
   useEffect(() => {
     call('GET', '/admin/settings').then(data => {
-      const value = { orgName: data.orgName, publicUrl: data.publicUrl ?? '', offlineDays: data.offlineDays, inviteDays: data.inviteDays, workVisibility: data.workVisibility, timeZone: data.timeZone };
+      const value = formOf(data);
       setSaved(value); setForm(value);
     }).catch(error => notify(error.message, { kind: 'error' }));
   }, [call, notify]);
@@ -21,11 +24,11 @@ export function SettingsPage() {
     event.preventDefault();
     setBusy(true);
     try {
-      const data = await call('PATCH', '/admin/settings', { orgName: form.orgName.trim(), publicUrl: form.publicUrl.trim() || null, offlineDays: Number(form.offlineDays), inviteDays: Number(form.inviteDays), workVisibility: form.workVisibility, timeZone: form.timeZone.trim() });
-      const value = { orgName: data.orgName, publicUrl: data.publicUrl ?? '', offlineDays: data.offlineDays, inviteDays: data.inviteDays, workVisibility: data.workVisibility, timeZone: data.timeZone };
+      const data = await call('PATCH', '/admin/settings', { orgName: form.orgName.trim(), publicUrl: form.publicUrl.trim() || null, offlineDays: Number(form.offlineDays), inviteDays: Number(form.inviteDays), workVisibility: form.workVisibility, timeZone: form.timeZone.trim(), assistantName: form.assistantName.trim() || null });
+      const value = formOf(data);
       setSaved(value); setForm(value);
       notify('已保存修改');
-      if (value.orgName !== saved.orgName) reload();
+      if (value.orgName !== saved.orgName || value.assistantName !== saved.assistantName) reload();
     } catch (error) { notify(error.message, { kind: 'error' }); } finally { setBusy(false); }
   };
   const changePassword = async event => {
@@ -41,7 +44,7 @@ export function SettingsPage() {
 
   return (
     <>
-      <PageHeader title="设置" summary="企业名称、员工连接用的地址、离线和邀请的期限，以及事项默认谁能看。" />
+      <PageHeader title="设置" summary="企业名称、员工连接用的地址、离线和邀请的期限、助手名称，以及事项默认谁能看。" />
       <form className="card section form" onSubmit={save}>
         <h2>企业</h2>
         <Field label="企业名称" hint="员工加入时看到“你将加入：企业名称”。"><input value={form.orgName} maxLength={60} onChange={event => setForm({ ...form, orgName: event.target.value })} /></Field>
@@ -54,6 +57,10 @@ export function SettingsPage() {
           </Field>
           <Field label="邀请默认有效天数"><input type="number" min={1} max={90} value={form.inviteDays} onChange={event => setForm({ ...form, inviteDays: event.target.value })} /></Field>
         </div>
+        <h2>助手</h2>
+        <Field label="助手名称" hint={`员工鲸翼里的「${DEFAULT_ASSISTANT_NAME.full}」统一换成这个名字：助手面板、专家团队、新会话页和给模型的说明都跟着换，原来写「${DEFAULT_ASSISTANT_NAME.short}」的地方也用这个全名。留空就用「${DEFAULT_ASSISTANT_NAME.full}」。最多 ${LIMITS.assistantName} 个字，一行。员工端下次同步时换上（打开 DSH、每 10 分钟，或在「团队」页签点刷新）。`}>
+          <input value={form.assistantName} maxLength={LIMITS.assistantName} placeholder={DEFAULT_ASSISTANT_NAME.full} onChange={event => setForm({ ...form, assistantName: event.target.value })} />
+        </Field>
         <h2>事项</h2>
         <Field group label="事项默认谁能看" hint="能改的范围不受影响：改别人的事项仍然要在自己的数据范围里，并且有对应的权限点。">
           <label className="check"><input type="radio" name="visibility" checked={form.workVisibility === 'scope'} onChange={() => setForm({ ...form, workVisibility: 'scope' })} />

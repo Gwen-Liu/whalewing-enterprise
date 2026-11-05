@@ -1,4 +1,4 @@
-// DSH Host 入口：登记鲸翼扩展、接上专家来源和知识来源，给浏览器的「团队」页签提供 manage 方法。
+// DSH Host 入口：登记鲸翼扩展、接上专家来源和知识来源、按企业设置给小鲸改名，给浏览器的「团队」页签提供 manage 方法。
 import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { Service } from '@deepseek-ai/cordis';
@@ -13,7 +13,8 @@ import { approvalReason, teamWorkTool, TOOL_NAME } from './tool.js';
 import tabIcon from './tab-icon.svg';
 
 const LABEL = { zh: '团队', en: 'Team' };
-const NEED = '0.2.1-rc.5.2';
+// 要鲸翼个人版公开的三样接口：专家来源、知识来源（0.2.1-rc.5.2 起）和助手名称（0.2.1-rc.5.4 起）。
+const NEED = '0.2.1-rc.5.4';
 
 export default class WhalewingEnterprise extends Service {
   static inject = ['whalewing', 'typert', 'credentials', 'profileContext'];
@@ -22,8 +23,9 @@ export default class WhalewingEnterprise extends Service {
     super(ctx, namespace);
     const profile = ctx.profileContext?.dir;
     if (typeof profile !== 'string' || !path.isAbsolute(profile)) throw new Error('拿不到当前 DSH profile 的位置，鲸翼企业版没法放本机缓存');
-    if (typeof ctx.whalewing.experts?.registerSource !== 'function' || typeof ctx.whalewing.knowledge?.registerSource !== 'function') {
-      throw new Error(`鲸翼个人版太旧，没有团队内容要用的接口。请先把鲸翼升级到 ${NEED} 或更新，再启用鲸翼企业版`);
+    if (typeof ctx.whalewing.experts?.registerSource !== 'function' || typeof ctx.whalewing.knowledge?.registerSource !== 'function'
+      || typeof ctx.whalewing.assistant?.registerName !== 'function') {
+      throw new Error(`鲸翼个人版太旧，没有鲸翼企业版要用的接口（团队内容、助手名称）。请先把鲸翼升级到 ${NEED} 或更新，再启用鲸翼企业版`);
     }
     // 每个 profile 各有一份登录和缓存，测试用的 profile 不会和正式的混在一起。
     const profileId = createHash('sha256').update(path.resolve(profile)).digest('hex').slice(0, 12);
@@ -33,6 +35,8 @@ export default class WhalewingEnterprise extends Service {
       credentials: ctx.credentials,
       credentialKey: credentialKey('dsh-whalewing-enterprise', `session-${profileId}`),
       personal: ctx.whalewing.knowledge,
+      // 企业设置里起了助手名称就交给鲸翼；要在 features.register 之后、用同一个 ctx 调：Engine 读完本机状态才调，那时已经登记过了。
+      assistant: { register: name => ctx.whalewing.assistant.registerName(ctx, name) },
       version: manifest.version,
       onChange: () => this.publish(),
       log,
