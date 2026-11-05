@@ -30,11 +30,12 @@ export function joinPage({ info, problem, version, link }) {
     return page('邀请链接用不了 · 鲸翼企业版', `<h1>邀请链接用不了</h1><p class="muted problem">${escape(problem)}</p>
 <p>请找发邀请的管理员重新发一条。</p>`);
   }
-  const role = info.role === 'admin' ? '管理员' : '成员';
+  // 成员的邀请写加入后挂的角色名（比如“负责人”），没有角色名时写“成员”。
+  const role = info.role === 'admin' ? '管理员' : info.roleName ?? '成员';
   return page(`加入${info.orgName} · 鲸翼企业版`, `<h1>加入 ${escape(info.orgName)}</h1>
 <p class="muted">你收到的是 <span class="brand">鲸翼企业版</span> 的邀请${info.department ? `，加入后在「${escape(info.department)}」` : ''}，身份是${role}。邀请 ${escape(info.expiresAt.slice(0, 10))} 前有效。</p>
 <ol>
-<li>在电脑上打开 DeepSeek Harness（DSH），先装好鲸翼个人版 <code>dsh-whalewing</code>。</li>
+<li>在电脑上打开 DeepSeek Harness（DSH），先装好鲸翼个人版 <code>dsh-whalewing@0.2.1-rc.5.4</code> 或更新的版本。</li>
 <li>在 DSH「插件 → 添加插件」里填 <code>dsh-whalewing-enterprise@${escape(version)}</code>，装好后点“立即启用”。</li>
 <li>打开鲸翼，进「团队」页签，粘贴这条邀请链接：<code class="link">${escape(link)}</code></li>
 <li>确认是要加入的企业，再设置你的登录名和密码。</li>
