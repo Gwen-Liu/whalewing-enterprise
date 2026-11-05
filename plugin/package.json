@@ -1,6 +1,6 @@
 {
   "name": "dsh-whalewing-enterprise",
-  "version": "0.2.1-rc.5.2",
+  "version": "0.2.1-rc.5.3",
   "description": "鲸翼企业版员工端：连接企业服务端，团队知识、团队专家、团队技能和团队事项直接出现在鲸翼里",
   "license": "AGPL-3.0-only",
   "type": "module",
