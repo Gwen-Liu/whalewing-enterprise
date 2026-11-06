@@ -4,13 +4,15 @@
 
 ## 安装
 
-1. 先装鲸翼个人版：在 DSH「插件 → 添加插件」填 `dsh-whalewing@0.2.1-rc.5.4` 或更新的 rc.5 版本（需要带团队内容和助手名称接口的版本；个人版太旧时员工端会报错说明要先升级）。
-2. 再填 `dsh-whalewing-enterprise@0.2.1-rc.5.2`，装好后点“立即启用”。国内网络在添加插件时选“中国大陆镜像源”。
+这一版 `0.2.2-rc.1.1` 只支持 DSH `0.2.2-rc.1`（DSH 只加载声明了自己版本的插件）。DSH `0.2.1-rc.5` 请用员工端 `0.2.1-rc.5.2` 和鲸翼个人版 `0.2.1-rc.5.4`。
+
+1. 先装鲸翼个人版：在 DSH「插件 → 添加插件」填 `dsh-whalewing@0.2.2-rc.1.1` 或更新的 `0.2.2-rc.1.x` 版本（个人版太旧时员工端会报错说明要先升级）。
+2. 再填 `dsh-whalewing-enterprise@0.2.2-rc.1.1`，装好后点“立即启用”。国内网络在添加插件时选“中国大陆镜像源”。
 3. 打开鲸翼，进「团队」页签，粘贴管理员发的邀请链接；已经有账号的填服务器地址登录。
 
-从第一版升级：在「添加插件」填这一版安装包的地址（如 `https://registry.npmmirror.com/dsh-whalewing-enterprise/-/dsh-whalewing-enterprise-0.2.1-rc.5.2.tgz`），原地换成新版，不用重新加入；装好后点“立即启用”，再重启 DSH。只填包名会被 DSH 拦下。
+从旧版升级（包括 DSH 升到 `0.2.2-rc.1` 后旧版标“异常”的）：在「添加插件」里先填个人版的安装包地址 `https://registry.npmmirror.com/dsh-whalewing/-/dsh-whalewing-0.2.2-rc.1.1.tgz`，点“立即启用”；再填员工端的 `https://registry.npmmirror.com/dsh-whalewing-enterprise/-/dsh-whalewing-enterprise-0.2.2-rc.1.1.tgz`，点“立即启用”，然后重启 DSH。都是原地换新版，不用卸载、不用重新加入。只填包名会被 DSH 拦下。
 
-只支持 DSH `0.2.1-rc.5`。没装鲸翼个人版时，员工端会等鲸翼装好、开启后再加载。
+没装鲸翼个人版时，员工端会等鲸翼装好、开启后再加载。
 
 ## 连上后有什么
 
