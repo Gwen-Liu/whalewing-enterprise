@@ -5,7 +5,7 @@
 # 第一次启动后用 docker compose logs whalewing-enterprise 看初始化码。数据在 ./data，备份就是复制这个目录。
 services:
   whalewing-enterprise:
-    image: ghcr.io/gwen-liu/whalewing-enterprise:0.2.1-rc.5.2
+    image: ghcr.io/gwen-liu/whalewing-enterprise:0.2.2-rc.1.1
     restart: unless-stopped
     ports:
       - "8730:8730"
