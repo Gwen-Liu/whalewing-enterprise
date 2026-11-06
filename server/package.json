@@ -1,6 +1,6 @@
 {
   "name": "whalewing-enterprise-server",
-  "version": "0.2.2-rc.1.1",
+  "version": "0.2.2-rc.1.2",
   "description": "鲸翼企业版服务端：账号、部门、权限和团队内容，带管理端网页",
   "license": "AGPL-3.0-only",
   "type": "module",
