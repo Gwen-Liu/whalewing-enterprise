@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { DSH_VERSION, PERSONAL_MIN_VERSION } from '@whalewing-enterprise/shared';
 import { cookieOf, member, OWNER, server, SETUP_CODE } from './helpers.mjs';
 import { createApp } from '../src/app.js';
 
@@ -111,13 +112,15 @@ test('邀请：带部门和人数上限，用完、过期、撤销后都不能�
   assert.equal(info.json.roleName, '成员', '成员的邀请写明加入后挂的角色');
 });
 
-test('邀请页会转义企业名称，防止被插入网页代码', async t => {
+test('邀请页会转义企业名称，防止被插入网页代码；写明要的 DSH 和鲸翼个人版版本', async t => {
   const s = await server(t);
   await s.request('PATCH', '/api/v1/admin/settings', { cookie: s.adminCookie, body: { orgName: '<script>alert(1)</script>' } });
   const { invite } = (await s.request('POST', '/api/v1/admin/invites', { cookie: s.adminCookie, body: { departmentId: null } })).json;
   const page = await s.request('GET', `/join/${invite.code}`);
   assert.ok(!page.body.includes('<script>alert(1)</script>'));
   assert.ok(page.body.includes('&lt;script&gt;'));
+  assert.ok(page.body.includes(`DSH，这一版要 <code>${DSH_VERSION}</code>`));
+  assert.ok(page.body.includes(`dsh-whalewing@${PERSONAL_MIN_VERSION}</code>`));
 });
 
 test('助手名称：只有管理员能改；规则和鲸翼个人版一样；员工登录、读自己、同步都拿得到；清空后不改名', async t => {

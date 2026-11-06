@@ -1,5 +1,6 @@
 // 服务端直接生成的两张小页面：邀请链接在浏览器里打开时的说明页，以及管理端还没构建时的提示页。
 // 不带脚本，只用内联样式；颜色跟随系统的浅色和深色。
+import { DSH_VERSION, PERSONAL_MIN_VERSION } from '@whalewing-enterprise/shared';
 
 const escape = value => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[char]);
 
@@ -35,7 +36,7 @@ export function joinPage({ info, problem, version, link }) {
   return page(`加入${info.orgName} · 鲸翼企业版`, `<h1>加入 ${escape(info.orgName)}</h1>
 <p class="muted">你收到的是 <span class="brand">鲸翼企业版</span> 的邀请${info.department ? `，加入后在「${escape(info.department)}」` : ''}，身份是${role}。邀请 ${escape(info.expiresAt.slice(0, 10))} 前有效。</p>
 <ol>
-<li>在电脑上打开 DeepSeek Harness（DSH），先装好鲸翼个人版 <code>dsh-whalewing@0.2.1-rc.5.4</code> 或更新的版本。</li>
+<li>在电脑上打开 DeepSeek Harness（DSH，这一版要 <code>${DSH_VERSION}</code>），先装好鲸翼个人版 <code>dsh-whalewing@${PERSONAL_MIN_VERSION}</code> 或更新的 <code>${DSH_VERSION}.x</code> 版本。</li>
 <li>在 DSH「插件 → 添加插件」里填 <code>dsh-whalewing-enterprise@${escape(version)}</code>，装好后点“立即启用”。</li>
 <li>打开鲸翼，进「团队」页签，粘贴这条邀请链接：<code class="link">${escape(link)}</code></li>
 <li>确认是要加入的企业，再设置你的登录名和密码。</li>

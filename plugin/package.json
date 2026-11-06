@@ -1,6 +1,6 @@
 {
   "name": "dsh-whalewing-enterprise",
-  "version": "0.2.1-rc.5.3",
+  "version": "0.2.2-rc.1.1",
   "description": "鲸翼企业版员工端：连接企业服务端，团队知识、团队专家、团队技能和团队事项直接出现在鲸翼里",
   "license": "AGPL-3.0-only",
   "type": "module",
@@ -30,7 +30,7 @@
     "id": "team"
   },
   "engines": {
-    "dsh": "0.2.1-rc.5",
+    "dsh": "0.2.2-rc.1",
     "node": "^22.19.0 || >=24"
   },
   "dsh": {
@@ -46,11 +46,11 @@
     }
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "~4.0.5",
-    "@deepseek-ai/dsh-typert-protocol": "0.2.1-rc.5",
-    "@deepseek-ai/dsh-credentials": "0.2.1-rc.5",
+    "@deepseek-ai/cordis": "~4.1.0",
+    "@deepseek-ai/dsh-typert-protocol": "0.2.2-rc.1",
+    "@deepseek-ai/dsh-credentials": "0.2.2-rc.1",
     "zod": "4.4.3",
-    "@deepseek-ai/dsh-tools": "0.2.1-rc.5"
+    "@deepseek-ai/dsh-tools": "0.2.2-rc.1"
   },
   "publishConfig": {
     "registry": "https://registry.npmjs.org/",

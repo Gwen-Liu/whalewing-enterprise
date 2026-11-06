@@ -4,6 +4,12 @@ export const PRODUCT = 'whalewing-enterprise';
 export const PROTOCOL_VERSION = 2;
 export const API_PREFIX = '/api/v1';
 
+// 这一版员工端适配的 DSH 版本（和员工端 package.json 的 engines.dsh 一致），以及要的鲸翼个人版最低版本：
+// 专家来源、知识来源（0.2.1-rc.5.2 起）和助手名称（0.2.1-rc.5.4 起）三样接口；DSH 0.2.2-rc.1 上能加载的个人版从 0.2.2-rc.1.1 起。
+// 员工端启动时按它报“个人版太旧”，服务端的邀请说明页按它写要装哪一版。
+export const DSH_VERSION = '0.2.2-rc.1';
+export const PERSONAL_MIN_VERSION = '0.2.2-rc.1.1';
+
 // 三类团队内容。knowledge 是知识空间，里面放多篇笔记；expert 是一位专家；skill 是一个技能目录。
 export const KINDS = Object.freeze(['knowledge', 'expert', 'skill']);
 export const KIND_LABELS = Object.freeze({ knowledge: '知识空间', expert: '专家', skill: '技能' });

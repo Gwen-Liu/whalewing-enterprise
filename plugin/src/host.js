@@ -5,6 +5,7 @@ import { Service } from '@deepseek-ai/cordis';
 import { credentialKey } from '@deepseek-ai/dsh-credentials';
 import { defineTool } from '@deepseek-ai/dsh-tools';
 import { bindTypertRemote, RemoteError } from '@deepseek-ai/dsh-typert-protocol';
+import { PERSONAL_MIN_VERSION } from '@whalewing-enterprise/shared/protocol';
 import manifest from '../package.json' with { type: 'json' };
 import { featureId, packageName } from '../identity.js';
 import { contract, input, namespace } from './contract.js';
@@ -13,8 +14,6 @@ import { approvalReason, teamWorkTool, TOOL_NAME } from './tool.js';
 import tabIcon from './tab-icon.svg';
 
 const LABEL = { zh: '团队', en: 'Team' };
-// 要鲸翼个人版公开的三样接口：专家来源、知识来源（0.2.1-rc.5.2 起）和助手名称（0.2.1-rc.5.4 起）。
-const NEED = '0.2.1-rc.5.4';
 
 export default class WhalewingEnterprise extends Service {
   static inject = ['whalewing', 'typert', 'credentials', 'profileContext'];
@@ -25,7 +24,7 @@ export default class WhalewingEnterprise extends Service {
     if (typeof profile !== 'string' || !path.isAbsolute(profile)) throw new Error('拿不到当前 DSH profile 的位置，鲸翼企业版没法放本机缓存');
     if (typeof ctx.whalewing.experts?.registerSource !== 'function' || typeof ctx.whalewing.knowledge?.registerSource !== 'function'
       || typeof ctx.whalewing.assistant?.registerName !== 'function') {
-      throw new Error(`鲸翼个人版太旧，没有鲸翼企业版要用的接口（团队内容、助手名称）。请先把鲸翼升级到 ${NEED} 或更新，再启用鲸翼企业版`);
+      throw new Error(`鲸翼个人版太旧，没有鲸翼企业版要用的接口（团队内容、助手名称）。请先把鲸翼升级到 ${PERSONAL_MIN_VERSION} 或更新，再启用鲸翼企业版`);
     }
     // 每个 profile 各有一份登录和缓存，测试用的 profile 不会和正式的混在一起。
     const profileId = createHash('sha256').update(path.resolve(profile)).digest('hex').slice(0, 12);
